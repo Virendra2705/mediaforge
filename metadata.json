@@ -1,0 +1,6 @@
+{
+  "name": "MediaForge - Media & Video Downloader Platform",
+  "description": "Production-grade media processing, format extraction, MP3/MP4 conversion, thumbnail and subtitle tooling for authorized content with job queue, admin management, and multilingual support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
