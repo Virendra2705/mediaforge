@@ -769,8 +769,6 @@ export class YtDlpService {
       '--no-progress',
       '--socket-timeout',
       '15',
-      '--extractor-args',
-      'youtube:player_client=android,ios,web',
       '--user-agent',
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       '--js-runtimes',
@@ -1045,19 +1043,9 @@ export class YtDlpService {
 
     const attempts = [
       {
-        name: 'standard-client-extraction',
+        name: 'standard-extraction',
         extractorArgs: [] as string[],
         format: formatSpec,
-      },
-      {
-        name: 'tv-web-client-fallback',
-        extractorArgs: ['--extractor-args', 'youtube:player_client=tv,web,mweb'] as string[],
-        format: isAudioOnly ? 'ba/b/best' : formatSpec,
-      },
-      {
-        name: 'android-ios-client-fallback',
-        extractorArgs: ['--extractor-args', 'youtube:player_client=android,ios,web'] as string[],
-        format: isAudioOnly ? 'ba/best' : '18/b/best',
       },
       {
         name: 'compat-format-fallback',
