@@ -7,6 +7,7 @@ import {
   Loader2,
   AlertCircle,
   ShieldAlert,
+  ShieldCheck,
   PlayCircle,
 } from 'lucide-react';
 import { useApp, SAMPLE_URLS } from '../context/AppContext';
@@ -78,10 +79,10 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
 
       {/* Main Input Form Card */}
       <form onSubmit={handleSubmit} className="relative group">
-        <div className="relative flex flex-col sm:flex-row items-stretch bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/60 dark:shadow-black/50 border border-slate-200 dark:border-slate-800 overflow-hidden p-1.5 focus-within:ring-2 ring-indigo-500/20 focus-within:border-indigo-500 transition-all">
+        <div className="relative flex flex-col sm:flex-row items-stretch bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl rounded-2xl shadow-2xl shadow-slate-950/20 border border-slate-200/80 dark:border-slate-800/80 overflow-hidden p-1.5 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-200">
           {/* Input field */}
           <div className="relative flex-1 w-full flex items-center px-2 sm:px-3 py-1">
-            <Search className="w-5 h-5 text-slate-400 dark:text-slate-500 mr-2 sm:mr-3 shrink-0" />
+            <Search className="w-5 h-5 text-slate-400 dark:text-slate-500 mr-2 sm:mr-3 shrink-0 transition-colors group-focus-within:text-indigo-500" />
             <input
               id="main-url-input"
               type="text"
@@ -89,7 +90,7 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
               onChange={e => setCurrentUrl(e.target.value)}
               placeholder={t.urlPlaceholder}
               aria-label="Media URL input"
-              className="w-full py-2.5 text-sm sm:text-base bg-transparent text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none"
+              className="w-full py-2.5 text-sm sm:text-base bg-transparent text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-colors"
             />
             {/* Clear Button */}
             {currentUrl && (
@@ -98,7 +99,7 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
                 id="clear-url-input-btn"
                 onClick={handleClear}
                 title={t.clearBtn}
-                className="p-1.5 mr-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="p-1.5 mr-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 vf-btn-tactile"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -109,7 +110,7 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
               id="paste-url-btn"
               onClick={handlePaste}
               title={t.pasteBtn}
-              className="flex items-center gap-1 px-3 py-1.5 mr-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition-colors shrink-0"
+              className="flex items-center gap-1 px-3 py-1.5 mr-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 vf-btn-tactile shrink-0"
             >
               <ClipboardPaste className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{t.pasteBtn}</span>
@@ -121,7 +122,7 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
             type="submit"
             id="analyze-submit-btn"
             disabled={isAnalyzing || !currentUrl.trim()}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold tracking-wide text-sm bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 shrink-0 transition-all duration-200"
+            className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold tracking-wide text-sm bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 shrink-0 vf-btn-tactile"
           >
             {isAnalyzing ? (
               <>
@@ -130,7 +131,7 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4 fill-current" />
+                <Sparkles className="w-4 h-4 fill-current transition-transform group-hover:scale-110" />
                 <span>{t.analyzeBtn}</span>
               </>
             )}
@@ -138,35 +139,39 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
         </div>
       </form>
 
-      {/* Geometric Sub-actions Bar */}
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+      {/* Calm Secondary Actions Bar */}
+      <div className="mt-3.5 flex flex-wrap items-center justify-center gap-3 sm:gap-4 text-xs font-medium text-slate-500 dark:text-slate-400">
         <button
           type="button"
           onClick={handlePaste}
-          className="flex items-center gap-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+          className="flex items-center gap-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 vf-btn-tactile transition-colors"
         >
-          <div className="w-1.5 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full" />
-          <span>PASTE FROM CLIPBOARD</span>
+          <ClipboardPaste className="w-3.5 h-3.5" />
+          <span>Paste Clipboard</span>
         </button>
         {currentUrl && (
-          <button
-            type="button"
-            onClick={handleClear}
-            className="flex items-center gap-1.5 hover:text-rose-500 transition-colors"
-          >
-            <div className="w-1.5 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full" />
-            <span>CLEAR INPUT</span>
-          </button>
+          <>
+            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+            <button
+              type="button"
+              onClick={handleClear}
+              className="flex items-center gap-1.5 hover:text-rose-500 vf-btn-tactile transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Clear Input</span>
+            </button>
+          </>
         )}
-        <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
-          <div className="w-1.5 h-1.5 bg-indigo-600 dark:bg-indigo-400 rounded-full animate-pulse" />
-          <span>AUTONOMOUS STREAM VERIFIER</span>
+        <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+          <span>Direct Stream Inspection</span>
         </div>
       </div>
 
-      {/* Error Alert Message */}
+      {/* Error Alert Message with Subtle Shake */}
       {analyzeError && (
-        <div className="mt-4 p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-sm text-rose-800 dark:text-rose-300 flex items-start gap-3 animate-in fade-in duration-150">
+        <div className="mt-4 p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-sm text-rose-800 dark:text-rose-300 flex items-start gap-3 vf-shake vf-fade-in">
           <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
           <div className="flex-1">
             <div className="font-semibold mb-0.5">Media Analysis Notice</div>
@@ -177,7 +182,7 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
 
       {/* Trust Notice Bar */}
       <div className="mt-3.5 flex items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400 text-center px-2">
-        <ShieldAlert className="w-4 h-4 text-blue-500 shrink-0" />
+        <ShieldCheck className="w-4 h-4 text-blue-500 shrink-0" />
         <span>{t.trustNotice}</span>
       </div>
 
@@ -195,7 +200,7 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
                 id={`sample-btn-${idx}`}
                 type="button"
                 onClick={() => handleLoadSample(sample.url, sample.name)}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 hover:border-blue-400 dark:hover:border-blue-500 transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 hover:border-blue-400 dark:hover:border-blue-500 vf-btn-tactile hover:-translate-y-0.5 flex items-center gap-1.5"
               >
                 <span className={`w-2 h-2 rounded-full ${sample.type === 'audio' ? 'bg-emerald-500' : 'bg-blue-500'}`} />
                 <span>{sample.name}</span>

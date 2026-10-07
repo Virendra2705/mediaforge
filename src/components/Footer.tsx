@@ -20,7 +20,7 @@ export const Footer: React.FC = () => {
   };
 
   return (
-    <footer className="w-full border-t border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 text-sm transition-colors duration-200">
+    <footer className="w-full border-t border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl text-slate-600 dark:text-slate-400 text-sm transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-12">
           {/* Col 1: Brand & Compliance mission */}
@@ -30,12 +30,12 @@ export const Footer: React.FC = () => {
                 <div className="w-4 h-4 bg-white rounded-sm transform rotate-45" />
               </div>
               <span className="text-lg font-bold text-slate-900 dark:text-white">
-                Media<span className="text-indigo-600 dark:text-indigo-400">Forge</span>
+                Video<span className="text-indigo-600 dark:text-indigo-400">Fetch</span>
               </span>
             </div>
 
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-sm">
-              An enterprise-grade media extraction, audio/video transcoding, and format transformation utility designed for authorized creators, educators, and archivers.
+              VideoFetch — Fast Video Downloader &amp; Media Tools. Download and process online videos, audio and media with fast, simple and secure tools.
             </p>
 
             {/* Strict Compliance Notice Banner */}
@@ -47,26 +47,44 @@ export const Footer: React.FC = () => {
               </div>
             </div>
 
-            {/* System Status Pill */}
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300">
+            {/* System Status Clean Text */}
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>All Extraction Adapters Operational (99.98% Uptime)</span>
+              <span>All Extraction Adapters Operational · 99.98% Uptime</span>
             </div>
           </div>
 
           {/* Col 2: Media Tools */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-200 mb-3.5">
-              Media Converters
+              Media Converters &amp; Tools
             </h4>
             <ul className="space-y-2 text-xs sm:text-sm">
               <li>
                 <button
-                  id="footer-nav-yt"
-                  onClick={() => handleNav('/youtube-downloader')}
+                  id="footer-nav-video-dl"
+                  onClick={() => handleNav('/video-downloader')}
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 >
-                  YouTube Downloader
+                  Online Video Downloader
+                </button>
+              </li>
+              <li>
+                <button
+                  id="footer-nav-audio-dl"
+                  onClick={() => handleNav('/audio-downloader')}
+                  className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                >
+                  Audio Downloader
+                </button>
+              </li>
+              <li>
+                <button
+                  id="footer-nav-video-conv"
+                  onClick={() => handleNav('/video-converter')}
+                  className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                >
+                  Video Converter
                 </button>
               </li>
               <li>
@@ -80,11 +98,11 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <button
-                  id="footer-nav-mp4"
-                  onClick={() => handleNav('/video-to-mp4')}
+                  id="footer-nav-trim"
+                  onClick={() => handleNav('/video-trimmer')}
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 >
-                  Video to MP4 (1080p/4K)
+                  Video Trimmer &amp; Cutter
                 </button>
               </li>
               <li>
@@ -103,15 +121,6 @@ export const Footer: React.FC = () => {
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 >
                   Subtitle (SRT/VTT) Tool
-                </button>
-              </li>
-              <li>
-                <button
-                  id="footer-nav-trim"
-                  onClick={() => handleNav('/video-trimmer')}
-                  className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                >
-                  Video Trimmer & Cutter
                 </button>
               </li>
             </ul>
@@ -219,10 +228,19 @@ export const Footer: React.FC = () => {
               <li>
                 <button
                   id="footer-nav-privacy"
-                  onClick={() => handleNav('/privacy')}
+                  onClick={() => handleNav('/privacy-policy')}
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 >
-                  Privacy Policy & Cookies
+                  Privacy Policy &amp; Cookies
+                </button>
+              </li>
+              <li>
+                <button
+                  id="footer-nav-security"
+                  onClick={() => handleNav('/security')}
+                  className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                >
+                  Security Architecture
                 </button>
               </li>
               <li>
@@ -231,7 +249,7 @@ export const Footer: React.FC = () => {
                   onClick={() => handleNav('/about')}
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 >
-                  About MediaForge
+                  About VideoFetch
                 </button>
               </li>
               <li>
@@ -249,11 +267,13 @@ export const Footer: React.FC = () => {
 
         {/* Bottom Bar */}
         <div className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
-          <p>© {new Date().getFullYear()} MediaForge Platform. {t.footerRights}</p>
+          <p>© {new Date().getFullYear()} VideoFetch Platform. {t.footerRights}</p>
           <div className="flex items-center gap-6">
-            <button onClick={() => handleNav('/privacy')} className="hover:underline">Privacy</button>
+            <button onClick={() => handleNav('/about')} className="hover:underline">About</button>
+            <button onClick={() => handleNav('/privacy-policy')} className="hover:underline">Privacy</button>
             <button onClick={() => handleNav('/terms')} className="hover:underline">Terms</button>
             <button onClick={() => handleNav('/dmca')} className="hover:underline">DMCA</button>
+            <button onClick={() => handleNav('/contact')} className="hover:underline">Contact</button>
             <button onClick={() => handleNav('/status')} className="hover:underline">Status</button>
           </div>
         </div>

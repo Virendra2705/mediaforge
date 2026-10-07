@@ -1,6 +1,6 @@
 {
-  "name": "MediaForge - Media & Video Downloader Platform",
-  "description": "Production-grade media processing, format extraction, MP3/MP4 conversion, thumbnail and subtitle tooling for authorized content with job queue, admin management, and multilingual support.",
+  "name": "VideoFetch - Fast Video Downloader & Media Tools",
+  "description": "VideoFetch is a fast online video downloader and media toolkit for downloading and processing supported video and audio content in HD, 4K and popular formats with privacy-conscious tools.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

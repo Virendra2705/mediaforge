@@ -169,7 +169,7 @@ export const AdminView: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold">MediaForge Administration & Ops</h1>
+              <h1 className="text-xl font-bold">VideoFetch Administration & Ops</h1>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 LIVE
               </span>

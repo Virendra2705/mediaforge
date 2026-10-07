@@ -1,0 +1,17 @@
+{
+  "name": "VideoFetch — Fast Video Downloader & Media Tools",
+  "short_name": "VideoFetch",
+  "description": "Download and process online videos, audio and media with fast, simple and secure tools.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

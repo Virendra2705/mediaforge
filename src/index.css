@@ -1,1 +1,371 @@
 @import "tailwindcss";
+
+/* ==========================================================================
+   VIDEOFETCH MOTION DESIGN SYSTEM
+   Professional, purposeful, micro-interactions & component transitions
+   ========================================================================== */
+
+:root {
+  /* Motion Duration Hierarchy */
+  --motion-duration-micro: 140ms;     /* Level 1: Button hover, focus, toggle, active */
+  --motion-duration-component: 240ms; /* Level 2: Dropdown, card, modal, accordion */
+  --motion-duration-section: 380ms;   /* Level 3: Section/Page reveal, hero entrance */
+  --motion-duration-state: 650ms;     /* Level 4: Progress updates, task completion */
+
+  /* Motion Easing Curves (Linear / Vercel / Apple precision curves) */
+  --motion-ease-standard: cubic-bezier(0.16, 1, 0.3, 1);  /* Natural decelerating settle */
+  --motion-ease-enter: cubic-bezier(0.0, 0.0, 0.2, 1);    /* Entering viewports */
+  --motion-ease-exit: cubic-bezier(0.4, 0.0, 1, 1);       /* Exiting viewports */
+  --motion-ease-state: cubic-bezier(0.4, 0.0, 0.2, 1);    /* Symmetrical state shifts */
+}
+
+/* Keyframes */
+@keyframes vf-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vf-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vf-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vf-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes vf-subtle-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20%, 60% {
+    transform: translateX(-3px);
+  }
+  40%, 80% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes vf-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes vf-pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Motion Utilities */
+.vf-fade-in {
+  animation: vf-fade-in var(--motion-duration-component) var(--motion-ease-standard) both;
+}
+
+.vf-slide-up {
+  animation: vf-slide-up var(--motion-duration-section) var(--motion-ease-standard) both;
+}
+
+.vf-slide-down {
+  animation: vf-slide-down var(--motion-duration-component) var(--motion-ease-standard) both;
+}
+
+.vf-scale-in {
+  animation: vf-scale-in var(--motion-duration-component) var(--motion-ease-standard) both;
+}
+
+.vf-shake {
+  animation: vf-subtle-shake 360ms var(--motion-ease-standard) both;
+}
+
+/* Tactile button micro-interaction */
+.vf-btn-tactile {
+  transition: transform var(--motion-duration-micro) var(--motion-ease-standard),
+              background-color var(--motion-duration-micro) var(--motion-ease-standard),
+              border-color var(--motion-duration-micro) var(--motion-ease-standard),
+              box-shadow var(--motion-duration-micro) var(--motion-ease-standard),
+              opacity var(--motion-duration-micro) var(--motion-ease-standard);
+}
+.vf-btn-tactile:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Elevation card micro-interaction */
+.vf-card-hover {
+  transition: transform var(--motion-duration-component) var(--motion-ease-standard),
+              box-shadow var(--motion-duration-component) var(--motion-ease-standard),
+              border-color var(--motion-duration-component) var(--motion-ease-standard);
+}
+.vf-card-hover:hover {
+  transform: translateY(-2px);
+}
+
+/* Smooth Skeleton Shimmer */
+.vf-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.12) 0%,
+    rgba(148, 163, 184, 0.24) 50%,
+    rgba(148, 163, 184, 0.12) 100%
+  );
+  background-size: 200% 100%;
+  animation: vf-shimmer 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.dark .vf-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(30, 41, 59, 0.5) 0%,
+    rgba(51, 65, 85, 0.6) 50%,
+    rgba(30, 41, 59, 0.5) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* ==========================================================================
+   LO-FI ATMOSPHERIC DRIFT KEYFRAMES & CONTINUOUS LIVING ENVIRONMENT
+   ========================================================================== */
+
+/* Multi-Directional & Multi-Speed Cloud Drift */
+@keyframes vf-cloud-drift-left-1 {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes vf-cloud-drift-left-2 {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes vf-cloud-drift-left-3 {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes vf-cloud-drift-right-1 {
+  0% {
+    transform: translate3d(-50%, 0, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Organic Altitude Sway */
+@keyframes vf-cloud-sway-subtle {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, 8px, 0);
+  }
+}
+
+/* Atmospheric Sun Breathing & Subtle Solar Arc */
+@keyframes vf-sun-breathe {
+  0%, 100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes vf-solar-arc {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-14px, 8px, 0);
+  }
+}
+
+/* Crepuscular Light Rays Breathing */
+@keyframes vf-light-rays-breathe {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.05) rotate(1.5deg);
+  }
+}
+
+/* Passing Cloud Shadow Ambient Dimming */
+@keyframes vf-cloud-shadow-pass {
+  0%, 100% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.04;
+  }
+  52% {
+    opacity: 0.12;
+  }
+  75% {
+    opacity: 0.03;
+  }
+}
+
+/* Multi-Tier Asynchronous Star Twinkling */
+@keyframes vf-star-twinkle-fast {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes vf-star-twinkle-slow {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+/* Fog Rolling Streams */
+@keyframes vf-fog-roll-1 {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes vf-fog-roll-2 {
+  0% {
+    transform: translate3d(-50%, 0, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Utility Classes */
+.vf-cloud-fast {
+  animation: vf-cloud-drift-left-3 65s linear infinite;
+  will-change: transform;
+}
+
+.vf-cloud-mid {
+  animation: vf-cloud-drift-left-1 92s linear infinite;
+  will-change: transform;
+}
+
+.vf-cloud-slow {
+  animation: vf-cloud-drift-left-2 135s linear infinite;
+  will-change: transform;
+}
+
+.vf-cloud-counter {
+  animation: vf-cloud-drift-right-1 160s linear infinite;
+  will-change: transform;
+}
+
+.vf-sun-halo-breathe {
+  animation: vf-sun-breathe 42s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.vf-solar-arc-drift {
+  animation: vf-solar-arc 140s ease-in-out infinite;
+  will-change: transform;
+}
+
+.vf-rays-drift {
+  animation: vf-light-rays-breathe 55s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.vf-cloud-shadow-layer {
+  animation: vf-cloud-shadow-pass 85s ease-in-out infinite;
+  will-change: opacity;
+}
+
+.vf-fog-stream-1 {
+  animation: vf-fog-roll-1 70s linear infinite;
+  will-change: transform;
+}
+
+.vf-fog-stream-2 {
+  animation: vf-fog-roll-2 95s linear infinite;
+  will-change: transform;
+}
+
+.bg-radial-vignette {
+  background: radial-gradient(circle at center, transparent 40%, rgba(15, 23, 42, 0.25) 95%);
+}
+
+.dark .bg-radial-vignette {
+  background: radial-gradient(circle at center, transparent 35%, rgba(2, 6, 23, 0.65) 100%);
+}
+
+/* Reduced Motion Compliance */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

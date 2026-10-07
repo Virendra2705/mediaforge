@@ -84,7 +84,7 @@ export const SupportedPlatformsView: React.FC = () => {
           Supported Media Platforms
         </h1>
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-          MediaForge utilizes a modular provider adapter architecture to inspect and process public, authorized media with zero circumvention of platform terms.
+          VideoFetch utilizes a modular provider adapter architecture to inspect and process public, authorized media with zero circumvention of platform terms.
         </p>
       </div>
 
@@ -117,7 +117,7 @@ export const SupportedPlatformsView: React.FC = () => {
         {providers.map((p, idx) => (
           <div
             key={idx}
-            className={`p-6 rounded-2xl border bg-white dark:bg-slate-900 shadow-sm space-y-4 ${p.color}`}
+            className={`p-6 rounded-2xl border bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl shadow-sm space-y-4 vf-card-hover ${p.color}`}
           >
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
@@ -261,8 +261,8 @@ export const FaqView: React.FC = () => {
 
   const faqs = [
     {
-      q: 'Is it legal to use MediaForge?',
-      a: 'Yes. MediaForge is a technology utility intended strictly for saving and converting content that you own, have explicit authorization to download, or which is published under Creative Commons or Public Domain licenses. We do not provide tools to circumvent DRM or platform paywalls.',
+      q: 'Is it legal to use VideoFetch?',
+      a: 'Yes. VideoFetch is a technology utility intended strictly for saving and converting content that you own, have explicit authorization to download, or which is published under Creative Commons or Public Domain licenses. We do not provide tools to circumvent DRM or platform paywalls.',
       category: 'Legal & Compliance',
     },
     {
@@ -276,7 +276,7 @@ export const FaqView: React.FC = () => {
       category: 'Audio',
     },
     {
-      q: 'Does MediaForge work with 4K Ultra HD videos?',
+      q: 'Does VideoFetch work with 4K Ultra HD videos?',
       a: 'Yes! When the source stream provides 4K (3840x2160) or 1080p Full HD master files, our analyzer extracts the original container formats without downscaling.',
       category: 'Video',
     },
@@ -287,7 +287,7 @@ export const FaqView: React.FC = () => {
     },
     {
       q: 'Can I download subtitles in multiple languages?',
-      a: 'Yes. If the media provider includes public closed captions or transcripts, MediaForge extracts them in standard SRT, WebVTT, and plain text (TXT) formats.',
+      a: 'Yes. If the media provider includes public closed captions or transcripts, VideoFetch extracts them in standard SRT, WebVTT, and plain text (TXT) formats.',
       category: 'Subtitles',
     },
     {
@@ -327,7 +327,7 @@ export const FaqView: React.FC = () => {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search questions (e.g. MP3, 4K, legal, subtitles)..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           />
         </div>
       </div>
@@ -339,27 +339,31 @@ export const FaqView: React.FC = () => {
           return (
             <div
               key={idx}
-              className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden transition-all shadow-sm"
+              className={`rounded-xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border transition-all duration-200 shadow-sm ${
+                isOpen
+                  ? 'border-indigo-300 dark:border-indigo-800/80 shadow-md'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
             >
               <button
                 id={`faq-btn-${idx}`}
                 type="button"
                 onClick={() => setOpenIndex(isOpen ? null : idx)}
-                className="w-full p-4 sm:p-5 text-left flex items-center justify-between gap-4 focus:outline-none"
+                className="w-full p-4 sm:p-5 text-left flex items-center justify-between gap-4 focus:outline-none vf-btn-tactile"
               >
                 <div className="space-y-0.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 block">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block">
                     {faq.category}
                   </span>
                   <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">
                     {faq.q}
                   </h3>
                 </div>
-                <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180 text-blue-500' : ''}`} />
+                <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-500' : ''}`} />
               </button>
 
               {isOpen && (
-                <div className="px-4 sm:px-5 pb-5 pt-1 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-800/80 animate-in fade-in duration-150">
+                <div className="px-4 sm:px-5 pb-5 pt-1 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-800/80 vf-slide-down">
                   {faq.a}
                 </div>
               )}

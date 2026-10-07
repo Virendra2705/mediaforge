@@ -174,7 +174,7 @@ async function startServer() {
 
     res.status(isHealthy ? 200 : 503).json({
       status: isHealthy ? 'healthy' : 'error',
-      service: 'MediaForge Server-Controlled Processing Gateway',
+      service: 'VideoFetch Server-Controlled Processing Gateway',
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),
       runtime: {
@@ -1592,7 +1592,7 @@ async function startServer() {
     ];
 
     if (format === 'vtt') {
-      let vtt = 'WEBVTT - MediaForge Transcript\n\n';
+      let vtt = 'WEBVTT - VideoFetch Transcript\n\n';
       dummyCaptions.forEach((c, idx) => {
         vtt += `${idx + 1}\n${c.startVtt} --> ${c.endVtt}\n${c.text}\n\n`;
       });
@@ -1639,7 +1639,7 @@ async function startServer() {
 
     const job = jobQueue.createJob({
       sourceUrl: sourceUrl || 'https://example.com/media.mp4',
-      provider: 'MediaForge Trimmer',
+      provider: 'VideoFetch Trimmer',
       mediaTitle: `${title || 'Clipped Media'} [${Math.round(startTime)}s-${Math.round(endTime)}s]`,
       thumbnailUrl: 'https://images.unsplash.com/photo-1536240478700-b869070f9279?auto=format&fit=crop&w=640&q=80',
       selectedFormat: exportFormat,
@@ -1684,7 +1684,7 @@ async function startServer() {
       excerpt: excerpt || title,
       content,
       category: category || 'Technology',
-      author: author || 'MediaForge Editorial',
+      author: author || 'VideoFetch Editorial',
       publishedAt: new Date().toISOString(),
       readTime: `${Math.max(1, Math.ceil(content.split(' ').length / 200))} min read`,
       tags: tags || ['Media', 'Technology'],
@@ -2419,6 +2419,19 @@ async function startServer() {
   });
 
   // ==========================================
+  // Public ads.txt for Google AdSense Crawler Verification
+  // ==========================================
+  app.get('/ads.txt', (req, res) => {
+    const adsTxtPath = path.join(process.cwd(), 'public', 'ads.txt');
+    if (fs.existsSync(adsTxtPath)) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.sendFile(adsTxtPath);
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.status(200).send('# VideoFetch — Google AdSense ads.txt\ngoogle.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0\n');
+  });
+
+  // ==========================================
   // API Catch-All 404 Handler
   // CRITICAL: Prevents any unmatched /api/* requests from falling through to the HTML SPA router
   // ==========================================
@@ -2431,6 +2444,79 @@ async function startServer() {
         message: `API endpoint ${req.method} ${req.originalUrl} not found.`,
       },
     });
+  });
+
+  // ==========================================
+  // Dynamic sitemap.xml generator (Always in sync with database & tools)
+  // ==========================================
+  app.get('/sitemap.xml', (req, res) => {
+    const origin = 'https://videofetch.app';
+    const staticRoutes = [
+      { path: '', priority: '1.0', changefreq: 'daily' },
+      { path: '/video-downloader', priority: '0.9', changefreq: 'weekly' },
+      { path: '/audio-downloader', priority: '0.9', changefreq: 'weekly' },
+      { path: '/video-converter', priority: '0.8', changefreq: 'weekly' },
+      { path: '/video-trimmer', priority: '0.8', changefreq: 'weekly' },
+      { path: '/thumbnail-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/subtitle-downloader', priority: '0.7', changefreq: 'weekly' },
+      { path: '/4k-video-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/youtube-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/youtube-shorts-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/tiktok-video-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/instagram-video-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/x-video-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/vimeo-video-downloader', priority: '0.7', changefreq: 'weekly' },
+      { path: '/pinterest-video-downloader', priority: '0.7', changefreq: 'weekly' },
+      { path: '/bilibili-video-downloader', priority: '0.7', changefreq: 'weekly' },
+      { path: '/supported-platforms', priority: '0.7', changefreq: 'monthly' },
+      { path: '/how-it-works', priority: '0.7', changefreq: 'monthly' },
+      { path: '/faq', priority: '0.7', changefreq: 'monthly' },
+      { path: '/blog', priority: '0.8', changefreq: 'daily' },
+      { path: '/about', priority: '0.7', changefreq: 'monthly' },
+      { path: '/contact', priority: '0.7', changefreq: 'monthly' },
+      { path: '/privacy-policy', priority: '0.6', changefreq: 'monthly' },
+      { path: '/terms', priority: '0.6', changefreq: 'monthly' },
+      { path: '/dmca', priority: '0.7', changefreq: 'monthly' },
+      { path: '/copyright', priority: '0.6', changefreq: 'monthly' },
+      { path: '/security', priority: '0.6', changefreq: 'monthly' },
+      { path: '/status', priority: '0.5', changefreq: 'daily' },
+      { path: '/changelog', priority: '0.5', changefreq: 'weekly' },
+    ];
+
+    const blogPosts = Array.from(db.blogPosts.values());
+    const blogUrls = blogPosts
+      .map(
+        post => `  <url>
+    <loc>${origin}/blog/${post.slug}</loc>
+    <lastmod>${
+      post.publishedAt
+        ? new Date(post.publishedAt).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0]
+    }</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>`
+      )
+      .join('\n');
+
+    const staticUrls = staticRoutes
+      .map(
+        r => `  <url>
+    <loc>${origin}${r.path}</loc>
+    <changefreq>${r.changefreq}</changefreq>
+    <priority>${r.priority}</priority>
+  </url>`
+      )
+      .join('\n');
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${staticUrls}
+${blogUrls}
+</urlset>`;
+
+    res.header('Content-Type', 'application/xml');
+    res.send(xml);
   });
 
   // ==========================================
@@ -2454,7 +2540,7 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`MediaForge Server running on http://0.0.0.0:${PORT}`);
+    console.log(`VideoFetch Server running on http://0.0.0.0:${PORT}`);
   });
 }
 

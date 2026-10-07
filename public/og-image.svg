@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f19" />
+      <stop offset="50%" stop-color="#111827" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)" />
+
+  <!-- Ambient light blobs -->
+  <circle cx="200" cy="150" r="280" fill="#4f46e5" opacity="0.15" filter="blur(80px)" />
+  <circle cx="1000" cy="450" r="320" fill="#06b6d4" opacity="0.12" filter="blur(100px)" />
+
+  <!-- Decorative border grid -->
+  <rect x="40" y="40" width="1120" height="550" rx="24" fill="none" stroke="#1e293b" stroke-width="2" />
+
+  <!-- Brand Icon -->
+  <g transform="translate(100, 110)">
+    <rect width="72" height="72" rx="18" fill="url(#brand)" />
+    <path d="M26 21L50 36L26 51V21Z" fill="#ffffff" />
+    <path d="M42 42L48 48M48 48L54 42M48 48V36" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </g>
+
+  <!-- Brand Typography -->
+  <text x="190" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="800" fill="#ffffff" letter-spacing="-0.02em">
+    Video<tspan fill="#38bdf8">Fetch</tspan>
+  </text>
+  <rect x="430" y="128" width="80" height="30" rx="6" fill="#1e1b4b" stroke="#3730a3" stroke-width="1" />
+  <text x="470" y="148" font-family="monospace" font-size="13" font-weight="700" fill="#a5b4fc" text-anchor="middle" letter-spacing="0.05em">v3.0</text>
+
+  <!-- Main Headline -->
+  <text x="100" y="270" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="56" font-weight="800" fill="#f8fafc" letter-spacing="-0.03em">
+    Fast Video Downloader &amp; Media Tools
+  </text>
+
+  <!-- Subtitle -->
+  <text x="100" y="340" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="400" fill="#94a3b8">
+    Download and process online videos, audio and media with fast, simple and secure tools.
+  </text>
+
+  <!-- Feature Pills -->
+  <g transform="translate(100, 420)">
+    <!-- Pill 1 -->
+    <rect x="0" y="0" width="220" height="52" rx="14" fill="#1e293b" stroke="#334155" stroke-width="1" />
+    <text x="110" y="32" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="600" fill="#e2e8f0" text-anchor="middle">4K &amp; 1080p MP4</text>
+
+    <!-- Pill 2 -->
+    <rect x="240" y="0" width="220" height="52" rx="14" fill="#1e293b" stroke="#334155" stroke-width="1" />
+    <text x="350" y="32" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="600" fill="#e2e8f0" text-anchor="middle">320 kbps MP3</text>
+
+    <!-- Pill 3 -->
+    <rect x="480" y="0" width="230" height="52" rx="14" fill="#1e293b" stroke="#334155" stroke-width="1" />
+    <text x="595" y="32" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="600" fill="#e2e8f0" text-anchor="middle">Frame Trimmer</text>
+
+    <!-- Pill 4 -->
+    <rect x="730" y="0" width="250" height="52" rx="14" fill="#1e293b" stroke="#334155" stroke-width="1" />
+    <text x="855" y="32" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" font-weight="600" fill="#e2e8f0" text-anchor="middle">Multi-Platform Saver</text>
+  </g>
+
+  <!-- Footer Security Trust Notice -->
+  <text x="100" y="540" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="500" fill="#64748b">
+    Ephemeral Processing • Zero Logging • Strict DMCA &amp; Copyright Compliance
+  </text>
+  <text x="1100" y="540" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="600" fill="#38bdf8" text-anchor="end">
+    videofetch.app
+  </text>
+</svg>

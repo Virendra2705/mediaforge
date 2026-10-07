@@ -20,7 +20,7 @@ class DatabaseStore {
 
   constructor() {
     this.settings = {
-      siteName: 'MediaForge',
+      siteName: 'VideoFetch',
       maintenanceMode: false,
       anonymousRateLimitPerHour: 25,
       authenticatedRateLimitPerHour: 100,
@@ -158,7 +158,7 @@ Bitrate measures the number of bits processed over a given unit of time (usually
 - **320 kbps**: Maximum MP3 standard. Delivers rich bass response, crisp highs, and full stereo separation ideal for studio monitors and high-end car audio.
 
 ### The Role of Container Formats
-Modern formats like AAC and Opus achieve equal or superior acoustic transparency at significantly lower bitrates (e.g., 160 kbps Opus matches 320 kbps MP3). MediaForge provides configurable target bitrates during MP3 export to ensure your files meet your exact playback standards.`,
+Modern formats like AAC and Opus achieve equal or superior acoustic transparency at significantly lower bitrates (e.g., 160 kbps Opus matches 320 kbps MP3). VideoFetch provides configurable target bitrates during MP3 export to ensure your files meet your exact playback standards.`,
         category: 'Audio Engineering',
         author: 'Marcus Vance, Audio Systems Engineer',
         publishedAt: '2026-07-14T10:00:00.000Z',
@@ -181,7 +181,7 @@ Modern formats like AAC and Opus achieve equal or superior acoustic transparency
 3. **AV1 (AOMedia Video 1)**: The modern royalty-free open standard developed by Google, Netflix, and Apple. Delivers pristine 1080p and 4K streams with drastically lower data requirements.
 
 ### Hardware vs Software Decoding
-While AV1 and VP9 offer superior compression, ensure your target hardware has dedicated silicon decoding to prevent battery drain. MediaForge optimizes output containers to match your device profile.`,
+While AV1 and VP9 offer superior compression, ensure your target hardware has dedicated silicon decoding to prevent battery drain. VideoFetch optimizes output containers to match your device profile.`,
         category: 'Video Technology',
         author: 'Elena Rostova, Video Streaming Architect',
         publishedAt: '2026-08-02T16:30:00.000Z',
@@ -214,7 +214,7 @@ Fair use considers four statutory factors:
 3. Amount and substantiality of the portion taken.
 4. Effect on the potential market value of the original work.
 
-MediaForge is committed to supporting authorized workflows for content creators handling CC media, public domain archives, and self-produced footage.`,
+VideoFetch is committed to supporting authorized workflows for content creators handling CC media, public domain archives, and self-produced footage.`,
         category: 'Compliance & Legal',
         author: 'David Harrison, Tech Legal Analyst',
         publishedAt: '2026-08-18T11:15:00.000Z',
@@ -254,7 +254,7 @@ MediaForge is committed to supporting authorized workflows for content creators 
         id: 'log_1',
         action: 'SYSTEM_BOOT',
         ip: '127.0.0.1',
-        details: 'MediaForge processing engine initialized. All providers online.',
+        details: 'VideoFetch processing engine initialized. All providers online.',
         timestamp: new Date(Date.now() - 3600000 * 24).toISOString()
       },
       {

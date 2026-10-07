@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { AppRoute } from '../types';
+import { AdContainer } from '../components/ads/AdContainer';
 
 interface BlogPostItem {
   id: string;
@@ -57,7 +58,7 @@ export const BlogListView: React.FC = () => {
       {/* Header */}
       <div className="text-center max-w-2xl mx-auto space-y-3">
         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-          MediaForge Engineering & Knowledge Base
+          VideoFetch Engineering & Knowledge Base
         </span>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
           Articles, Guides & Tech Specs
@@ -90,7 +91,7 @@ export const BlogListView: React.FC = () => {
           <article
             key={post.id}
             onClick={() => setRoute(`/blog/${post.slug}` as AppRoute)}
-            className="group cursor-pointer rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-xl hover:border-blue-400 dark:hover:border-blue-600 transition-all flex flex-col justify-between"
+            className="group cursor-pointer rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden shadow-sm hover:shadow-xl hover:border-indigo-400 dark:hover:border-indigo-600 transition-all flex flex-col justify-between vf-card-hover"
           >
             <div>
               {/* Featured Image */}

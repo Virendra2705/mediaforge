@@ -61,7 +61,7 @@ export const StatusView: React.FC = () => {
       <div className="text-center space-y-3">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>All MediaForge Services Operational</span>
+          <span>All VideoFetch Services Operational</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
           Live System Status & Telemetry
@@ -158,7 +158,7 @@ export const ChangelogView: React.FC = () => {
     {
       version: 'v2.0.0',
       date: 'June 2026',
-      title: 'MediaForge Initial Architecture',
+      title: 'VideoFetch Initial Architecture',
       changes: [
         'Designed modular MediaProvider interface for plug-and-play platform integrations.',
         'Created strict compliance framework prohibiting DRM circumvention.',

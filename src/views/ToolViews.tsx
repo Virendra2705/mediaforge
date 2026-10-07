@@ -21,6 +21,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { UrlInputBar } from '../components/UrlInputBar';
 import { MediaResultCard } from '../components/MediaResultCard';
+import { AdContainer } from '../components/ads/AdContainer';
 
 // 1. YOUTUBE / VIDEO DOWNLOADER VIEW
 export const YoutubeDownloaderView: React.FC = () => {
@@ -31,6 +32,7 @@ export const YoutubeDownloaderView: React.FC = () => {
         customSubtitle="Inspect authorized public videos, extract pristine MP4 containers, and save audio tracks in highest fidelity."
       />
       <MediaResultCard />
+      <AdContainer format="horizontal" minHeight={90} className="mt-8" />
     </div>
   );
 };
@@ -61,7 +63,7 @@ export const Mp3ConverterView: React.FC = () => {
       />
 
       {metadata && (
-        <div className="mt-8 p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl">
+        <div className="mt-8 p-6 sm:p-8 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xl shadow-slate-950/20">
           <div className="flex flex-col md:flex-row gap-6 items-center">
             {/* Album Artwork Preview */}
             <div className="relative w-44 h-44 rounded-2xl overflow-hidden bg-slate-950 shadow-lg shrink-0">
@@ -90,13 +92,16 @@ export const Mp3ConverterView: React.FC = () => {
             {/* Controls */}
             <div className="flex-1 min-w-0 space-y-4 text-center md:text-left">
               <div>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                  Audio Track Ready
-                </span>
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>Audio Stream Inspected</span>
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-slate-500 dark:text-slate-400">Ready for Transcode</span>
+                </div>
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white mt-1.5 truncate">
                   {metadata.title}
                 </h2>
-                <p className="text-xs text-slate-500">{metadata.author.name} • {metadata.durationFormatted}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{metadata.author.name} · {metadata.durationFormatted}</p>
               </div>
 
               {/* Bitrate Selector */}
@@ -150,6 +155,7 @@ export const Mp3ConverterView: React.FC = () => {
           </div>
         </div>
       )}
+      <AdContainer format="horizontal" minHeight={90} className="mt-8" />
     </div>
   );
 };
@@ -163,6 +169,7 @@ export const Mp4DownloaderView: React.FC = () => {
         customSubtitle="Select between 360p, 720p HD, 1080p Full HD, and 4K Ultra HD video streams."
       />
       <MediaResultCard />
+      <AdContainer format="horizontal" minHeight={90} className="mt-8" />
     </div>
   );
 };
@@ -202,7 +209,7 @@ export const ThumbnailDownloaderView: React.FC = () => {
             {metadata.availableThumbnails.map((item, idx) => (
               <div
                 key={idx}
-                className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md space-y-3"
+                className="p-4 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-lg space-y-3 vf-card-hover"
               >
                 <div className="aspect-video w-full rounded-xl overflow-hidden bg-slate-950">
                   <img
@@ -233,6 +240,7 @@ export const ThumbnailDownloaderView: React.FC = () => {
           </div>
         </div>
       )}
+      <AdContainer format="horizontal" minHeight={90} className="mt-8" />
     </div>
   );
 };
@@ -273,7 +281,7 @@ export const SubtitleDownloaderView: React.FC = () => {
       />
 
       {metadata && (
-        <div className="mt-8 p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl">
+        <div className="mt-8 p-6 sm:p-8 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xl shadow-slate-950/20">
           <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
             Captions for: {metadata.title}
           </h2>
@@ -328,6 +336,7 @@ export const SubtitleDownloaderView: React.FC = () => {
           )}
         </div>
       )}
+      <AdContainer format="horizontal" minHeight={90} className="mt-8" />
     </div>
   );
 };
@@ -404,7 +413,7 @@ export const VideoTrimmerView: React.FC = () => {
       />
 
       {metadata && (
-        <div className="mt-8 p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
+        <div className="mt-8 p-6 sm:p-8 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xl shadow-slate-950/20 space-y-6">
           {/* Header */}
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
@@ -548,6 +557,7 @@ export const VideoTrimmerView: React.FC = () => {
           </div>
         </div>
       )}
+      <AdContainer format="horizontal" minHeight={90} className="mt-8" />
     </div>
   );
 };

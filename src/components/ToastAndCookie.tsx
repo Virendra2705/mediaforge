@@ -12,7 +12,7 @@ export const ToastContainer: React.FC = () => {
       {toasts.map(toast => (
         <div
           key={toast.id}
-          className={`pointer-events-auto p-4 rounded-xl border shadow-xl flex items-start gap-3 backdrop-blur-md transition-all duration-200 animate-in slide-in-from-bottom-2 ${
+          className={`pointer-events-auto p-4 rounded-xl border shadow-xl flex items-start gap-3 backdrop-blur-md transition-all duration-200 vf-slide-up ${
             toast.type === 'success'
               ? 'bg-emerald-950/90 text-emerald-100 border-emerald-800'
               : toast.type === 'error'
@@ -33,7 +33,7 @@ export const ToastContainer: React.FC = () => {
 
           <button
             onClick={() => removeToast(toast.id)}
-            className="p-1 rounded-md opacity-60 hover:opacity-100 hover:bg-white/10 transition-colors"
+            className="p-1 rounded-md opacity-60 hover:opacity-100 hover:bg-white/10 vf-btn-tactile"
           >
             <X className="w-4 h-4" />
           </button>
@@ -56,17 +56,21 @@ export const CookieBanner: React.FC = () => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-md z-40 p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl animate-in slide-in-from-bottom-4">
+    <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-md z-40 p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl vf-slide-up">
       <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
         Privacy & Essential Cookies
       </h4>
       <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-3">
-        MediaForge uses anonymous local storage for theme, language preferences, and rate-limiting metrics. We do not track personal identities or store unauthorized media.
+        VideoFetch uses local storage for theme, atmosphere, and language preferences, alongside privacy-conscious metrics. Read our{' '}
+        <a href="/privacy" className="text-indigo-600 dark:text-indigo-400 underline font-medium">
+          Privacy Policy
+        </a>{' '}
+        for details on data protections and advertising choices.
       </p>
       <div className="flex items-center justify-end gap-2">
         <button
           onClick={handleAccept}
-          className="px-4 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition-colors"
+          className="px-4 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm vf-btn-tactile"
         >
           Accept & Continue
         </button>

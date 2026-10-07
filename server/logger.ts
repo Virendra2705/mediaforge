@@ -1,5 +1,5 @@
 /**
- * MediaForge Leveled Logger
+ * VideoFetch Leveled Logger
  * Provides structured, leveled logging using process streams.
  */
 

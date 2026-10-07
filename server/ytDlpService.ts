@@ -367,7 +367,7 @@ export class YtDlpService {
 
     return {
       status: isExecutable ? 'ok' : 'error',
-      service: 'MediaForge Processing Gateway',
+      service: 'VideoFetch Processing Gateway',
       timestamp: new Date().toISOString(),
       runtime: {
         nodeVersion: process.version,

@@ -1,0 +1,4 @@
+# VideoFetch — Google AdSense Authorized Digital Sellers (ads.txt)
+# Official documentation: https://support.google.com/adsense/answer/7532444
+# Replace pub-XXXXXXXXXXXXXXXX with your official Google AdSense Publisher ID:
+google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0

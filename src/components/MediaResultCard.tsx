@@ -135,11 +135,11 @@ export const MediaResultCard: React.FC = () => {
   };
 
   return (
-    <div id="media-result-container" className="w-full max-w-5xl mx-auto mt-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+    <div id="media-result-container" className="w-full max-w-5xl mx-auto mt-8 vf-slide-up">
       {/* 2-Column Balanced Geometric Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Media Metadata & Status (5 cols) */}
-        <div className="lg:col-span-5 bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <div className="lg:col-span-5 bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl p-5 sm:p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xl shadow-slate-950/20 space-y-4 vf-card-hover">
           {/* Video Preview Player with Mode Toggle */}
           <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-slate-950 shadow-sm group">
             {previewMode === 'video' && !videoError ? (
@@ -320,13 +320,13 @@ export const MediaResultCard: React.FC = () => {
         </div>
 
         {/* Right Column: Tabular Formats & Options (7 cols) */}
-        <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col justify-between">
+        <div className="lg:col-span-7 bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xl shadow-slate-950/20 overflow-hidden flex flex-col justify-between">
           {/* Format Tabs Bar */}
           <div className="flex items-center gap-1.5 p-3 border-b border-slate-200 dark:border-slate-800 overflow-x-auto bg-slate-50/50 dark:bg-slate-900/50">
             <button
               id="tab-all-formats"
               onClick={() => setActiveTab('all')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap flex items-center gap-1.5 vf-btn-tactile ${
                 activeTab === 'all'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
@@ -339,7 +339,7 @@ export const MediaResultCard: React.FC = () => {
             <button
               id="tab-video-formats"
               onClick={() => setActiveTab('video')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap flex items-center gap-1.5 vf-btn-tactile ${
                 activeTab === 'video'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
@@ -352,7 +352,7 @@ export const MediaResultCard: React.FC = () => {
             <button
               id="tab-audio-formats"
               onClick={() => setActiveTab('audio')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap flex items-center gap-1.5 vf-btn-tactile ${
                 activeTab === 'audio'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
@@ -366,7 +366,7 @@ export const MediaResultCard: React.FC = () => {
               <button
                 id="tab-thumbnail-formats"
                 onClick={() => setActiveTab('thumbnails')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap flex items-center gap-1.5 vf-btn-tactile ${
                   activeTab === 'thumbnails'
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
@@ -381,7 +381,7 @@ export const MediaResultCard: React.FC = () => {
               <button
                 id="tab-subtitle-formats"
                 onClick={() => setActiveTab('subtitles')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap flex items-center gap-1.5 vf-btn-tactile ${
                   activeTab === 'subtitles'
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
@@ -444,10 +444,10 @@ export const MediaResultCard: React.FC = () => {
                         type="button"
                         onClick={() => handleCopyLink(fmt)}
                         title="Copy direct signed link"
-                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 vf-btn-tactile"
                       >
                         {copiedId === fmt.id ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <Check className="w-3.5 h-3.5 text-emerald-500 animate-in zoom-in-75 duration-150" />
                         ) : (
                           <Copy className="w-3.5 h-3.5" />
                         )}
@@ -462,9 +462,10 @@ export const MediaResultCard: React.FC = () => {
                             formatType: isAudioOnly ? 'audio' : 'video',
                           })
                         }
-                        className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/80 vf-btn-tactile flex items-center gap-1 group/dl"
                       >
-                        {isAudioOnly ? 'Extract' : 'Download'}
+                        <span>{isAudioOnly ? 'Extract' : 'Download'}</span>
+                        <Download className="w-3 h-3 transition-transform duration-150 group-hover/dl:translate-y-0.5" />
                       </button>
                     </div>
                   </div>

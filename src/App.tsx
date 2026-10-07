@@ -1,5 +1,8 @@
 import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
+import { AtmosphereProvider } from './context/AtmosphereContext';
+import { AtmosphericBackground } from './components/AtmosphericBackground';
+import { AdSenseScript } from './components/ads/AdSenseScript';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { ActiveJobModal } from './components/ActiveJobModal';
@@ -20,11 +23,26 @@ import {
   FaqView,
 } from './views/InfoViews';
 import { BlogListView, BlogPostView } from './views/BlogViews';
-import { DmcaView, CopyrightView, TermsView, PrivacyView } from './views/LegalViews';
+import { DmcaView, CopyrightView, TermsView, PrivacyView, SecurityView } from './views/LegalViews';
 import { AboutView, ContactView } from './views/AboutContactViews';
 import { StatusView, ChangelogView } from './views/StatusChangelogViews';
 import { DashboardView } from './views/DashboardView';
 import { AdminView } from './views/AdminView';
+import {
+  UniversalVideoDownloaderView,
+  FourKDownloaderView,
+  AudioDownloaderView,
+  VideoConverterView,
+  YouTubeDownloaderView,
+  YouTubeShortsDownloaderView,
+  TikTokDownloaderView,
+  InstagramDownloaderView,
+  XTwitterDownloaderView,
+  VimeoDownloaderView,
+  PinterestDownloaderView,
+  BilibiliDownloaderView,
+} from './views/SeoLandingViews';
+import { NotFoundView } from './views/NotFoundView';
 import { ShieldAlert, KeyRound } from 'lucide-react';
 
 const AdminGate: React.FC = () => {
@@ -66,26 +84,62 @@ const MainRouter: React.FC = () => {
 
   const renderCurrentView = () => {
     if (route === '/') return <HomeView />;
-    if (route === '/youtube-downloader') return <YoutubeDownloaderView />;
-    if (route === '/video-to-mp3') return <Mp3ConverterView />;
-    if (route === '/video-to-mp4') return <Mp4DownloaderView />;
+
+    // Required Public Media Tools:
+    if (route === '/video-downloader' || route === '/online-video-downloader') {
+      return <UniversalVideoDownloaderView />;
+    }
+    if (route === '/audio-downloader') {
+      return <AudioDownloaderView canonicalPath="/audio-downloader" />;
+    }
+    if (route === '/video-to-mp3') {
+      return <Mp3ConverterView />;
+    }
+    if (route === '/video-converter') {
+      return <VideoConverterView canonicalPath="/video-converter" />;
+    }
+    if (route === '/video-to-mp4') {
+      return <Mp4DownloaderView />;
+    }
     if (route === '/thumbnail-downloader') return <ThumbnailDownloaderView />;
     if (route === '/subtitle-downloader') return <SubtitleDownloaderView />;
     if (route === '/video-trimmer') return <VideoTrimmerView />;
+    if (route === '/4k-video-downloader' || route === '/hd-video-downloader') {
+      return <FourKDownloaderView />;
+    }
+
+    // Platform-Specific SEO Pages:
+    if (route === '/youtube-downloader' || route === '/youtube-video-downloader') {
+      return <YouTubeDownloaderView />;
+    }
+    if (route === '/youtube-shorts-downloader') return <YouTubeShortsDownloaderView />;
+    if (route === '/tiktok-video-downloader') return <TikTokDownloaderView />;
+    if (route === '/instagram-video-downloader') return <InstagramDownloaderView />;
+    if (route === '/x-video-downloader') return <XTwitterDownloaderView />;
+    if (route === '/vimeo-video-downloader') return <VimeoDownloaderView />;
+    if (route === '/pinterest-video-downloader') return <PinterestDownloaderView />;
+    if (route === '/bilibili-video-downloader') return <BilibiliDownloaderView />;
+
+    // Guides & Technical Info:
     if (route === '/supported-platforms') return <SupportedPlatformsView />;
     if (route === '/how-it-works') return <HowItWorksView />;
     if (route === '/faq') return <FaqView />;
+
+    // Blog & Articles:
     if (route === '/blog') return <BlogListView />;
     if (route.startsWith('/blog/')) {
       const slug = route.replace('/blog/', '');
       return <BlogPostView slug={slug} />;
     }
-    if (route === '/dmca') return <DmcaView />;
-    if (route === '/copyright') return <CopyrightView />;
-    if (route === '/terms') return <TermsView />;
-    if (route === '/privacy') return <PrivacyView />;
+
+    // Required Legal, Company & Contact Pages:
     if (route === '/about') return <AboutView />;
     if (route === '/contact') return <ContactView />;
+    if (route === '/privacy' || route === '/privacy-policy') return <PrivacyView />;
+    if (route === '/terms') return <TermsView />;
+    if (route === '/dmca') return <DmcaView />;
+    if (route === '/copyright') return <CopyrightView />;
+    if (route === '/security') return <SecurityView />;
     if (route === '/status') return <StatusView />;
     if (route === '/changelog') return <ChangelogView />;
     if (route === '/dashboard') return <DashboardView />;
@@ -96,13 +150,20 @@ const MainRouter: React.FC = () => {
       return <AdminView />;
     }
 
-    return <HomeView />;
+    // 404 Fallback
+    return <NotFoundView />;
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased selection:bg-blue-500 selection:text-white transition-colors duration-200">
+    <div className="min-h-screen flex flex-col text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-500 selection:text-white transition-colors duration-300 relative">
+      <AdSenseScript />
+      <AtmosphericBackground />
       <Header />
-      <main className="flex-1 w-full">{renderCurrentView()}</main>
+      <main className="flex-1 w-full relative z-0">
+        <div key={route} className="vf-slide-up w-full">
+          {renderCurrentView()}
+        </div>
+      </main>
       <Footer />
       <ActiveJobModal />
       <AuthModal />
@@ -115,7 +176,9 @@ const MainRouter: React.FC = () => {
 export default function App() {
   return (
     <AppProvider>
-      <MainRouter />
+      <AtmosphereProvider>
+        <MainRouter />
+      </AtmosphereProvider>
     </AppProvider>
   );
 }

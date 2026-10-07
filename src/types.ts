@@ -1,11 +1,25 @@
 export type AppRoute =
   | '/'
-  | '/youtube-downloader'
+  | '/video-downloader'
+  | '/online-video-downloader'
+  | '/4k-video-downloader'
+  | '/hd-video-downloader'
   | '/video-to-mp3'
+  | '/audio-downloader'
+  | '/video-converter'
   | '/video-to-mp4'
+  | '/video-trimmer'
   | '/thumbnail-downloader'
   | '/subtitle-downloader'
-  | '/video-trimmer'
+  | '/youtube-downloader'
+  | '/youtube-video-downloader'
+  | '/youtube-shorts-downloader'
+  | '/tiktok-video-downloader'
+  | '/instagram-video-downloader'
+  | '/x-video-downloader'
+  | '/vimeo-video-downloader'
+  | '/pinterest-video-downloader'
+  | '/bilibili-video-downloader'
   | '/supported-platforms'
   | '/how-it-works'
   | '/faq'
@@ -14,9 +28,11 @@ export type AppRoute =
   | '/about'
   | '/contact'
   | '/privacy'
+  | '/privacy-policy'
   | '/terms'
   | '/copyright'
   | '/dmca'
+  | '/security'
   | '/changelog'
   | '/status'
   | '/dashboard'
@@ -29,6 +45,10 @@ export type AppRoute =
 export type LanguageCode = 'en' | 'hi' | 'fr' | 'de' | 'es' | 'pt' | 'ja' | 'ko' | 'ar';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
+
+export type AtmosphereScene = 'auto' | 'morning' | 'day' | 'sunset' | 'night' | 'rain' | 'fog';
+export type EffectiveScene = 'morning' | 'day' | 'sunset' | 'night' | 'rain' | 'fog';
+export type MotionPreference = 'full' | 'reduced' | 'off';
 
 export interface ClientMediaFormat {
   id: string;

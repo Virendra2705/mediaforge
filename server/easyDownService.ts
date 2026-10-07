@@ -462,7 +462,7 @@ export async function parseWithEasyDownApi(
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
-        'User-Agent': 'MediaForge-Downloader/2.4',
+        'User-Agent': 'VideoFetch-Downloader/2.4',
         'Accept': 'application/json',
       },
       body: JSON.stringify({

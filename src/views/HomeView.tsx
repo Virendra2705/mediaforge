@@ -17,6 +17,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { UrlInputBar } from '../components/UrlInputBar';
 import { MediaResultCard } from '../components/MediaResultCard';
+import { AdContainer } from '../components/ads/AdContainer';
 
 export const HomeView: React.FC = () => {
   const { setRoute, metadata, t } = useApp();
@@ -62,24 +63,26 @@ export const HomeView: React.FC = () => {
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-indigo-500/5 dark:bg-indigo-600/10 blur-[120px] rounded-full pointer-events-none" />
 
         <div className="relative max-w-5xl mx-auto text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-semibold mb-6 shadow-sm">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>Fast, Compliant, & Accessible Media Tooling</span>
+          {/* Calm Ambient Kicker */}
+          <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-wider uppercase text-indigo-600 dark:text-indigo-400 mb-4 vf-fade-in">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Fast, Compliant, &amp; Accessible Media Tooling</span>
           </div>
 
           {/* Heading */}
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.15] mb-4">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.15] mb-4 vf-slide-up">
             {t.heroHeading}
           </h1>
 
           {/* Subtitle */}
-          <p className="text-base sm:text-lg lg:text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed mb-8">
+          <p className="text-base sm:text-lg lg:text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed mb-8 vf-slide-up">
             {t.heroSubtitle}
           </p>
 
           {/* Main URL Input Form */}
-          <UrlInputBar />
+          <div className="vf-slide-up">
+            <UrlInputBar />
+          </div>
         </div>
       </section>
 
@@ -88,11 +91,14 @@ export const HomeView: React.FC = () => {
         <MediaResultCard />
       </section>
 
+      {/* Receptive Ad Unit (Non-intrusive placement below tool results) */}
+      <AdContainer format="horizontal" minHeight={90} ariaLabel="Sponsored Content" />
+
       {/* Features Showcase Grid */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20 pt-12 border-t border-slate-200 dark:border-slate-800/80">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 pt-12 border-t border-slate-200/60 dark:border-slate-800/60">
         <div className="text-center max-w-2xl mx-auto mb-12">
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mb-3">
-            Designed for Creators, Educators & Archivers
+            Designed for Creators, Educators &amp; Archivers
           </h2>
           <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400">
             A reliable, clean processing architecture built for permissible audio extraction, clipping, and multi-format conversion.
@@ -103,9 +109,9 @@ export const HomeView: React.FC = () => {
           {features.map((feat, idx) => (
             <div
               key={idx}
-              className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow"
+              className="p-6 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/80 dark:border-slate-800/80 shadow-sm vf-card-hover"
             >
-              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+              <div className="w-10 h-10 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 flex items-center justify-center mb-4 transition-transform group-hover:scale-105">
                 {feat.icon}
               </div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">
@@ -119,25 +125,28 @@ export const HomeView: React.FC = () => {
         </div>
       </section>
 
+      {/* Mid-Content Responsive Ad Unit */}
+      <AdContainer format="auto" minHeight={120} ariaLabel="Sponsored Content" />
+
       {/* Trust & Legal Compliance Highlight */}
       <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-16">
-        <div className="p-6 sm:p-8 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="p-6 sm:p-8 rounded-2xl bg-white/75 dark:bg-slate-900/75 backdrop-blur-lg border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 vf-card-hover">
           <div className="space-y-2 text-center md:text-left">
             <div className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-sm">
               <ShieldCheck className="w-5 h-5" />
-              <span>Strict Copyright & Terms Compliance</span>
+              <span>Strict Copyright &amp; Terms Compliance</span>
             </div>
             <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">
-              Respect for Creators & Content Rights
+              Respect for Creators &amp; Content Rights
             </h3>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-xl">
-              MediaForge never bypasses DRM, passwords, paywalls, or private authorizations. Our service processes publicly permissible streams, Creative Commons media, and user-owned content.
+              VideoFetch never bypasses DRM, passwords, paywalls, or private authorizations. Our service processes publicly permissible streams, Creative Commons media, and user-owned content.
             </p>
           </div>
 
           <button
             onClick={() => setRoute('/dmca')}
-            className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shrink-0 flex items-center gap-2 transition-all"
+            className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white shadow-sm shrink-0 flex items-center gap-2 vf-btn-tactile"
           >
             <span>DMCA Complaint</span>
             <ArrowRight className="w-4 h-4" />
@@ -159,7 +168,7 @@ export const HomeView: React.FC = () => {
         <div className="space-y-3">
           <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
             <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">
-              What media can I process using MediaForge?
+              What media can I process using VideoFetch?
             </h4>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
               You can process videos and audio files that you own, content published under Creative Commons or Public Domain licenses, and media where you have explicit permission from the copyright owner.

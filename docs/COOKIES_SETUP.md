@@ -1,6 +1,6 @@
 # Fixing UPSTREAM_BOT_VERIFICATION_REQUIRED — Cookie Setup Guide
 
-This guide explains how to configure `YTDLP_COOKIES` for MediaForge so that `yt-dlp` can authenticate requests and overcome `UPSTREAM_BOT_VERIFICATION_REQUIRED` errors.
+This guide explains how to configure `YTDLP_COOKIES` for VideoFetch so that `yt-dlp` can authenticate requests and overcome `UPSTREAM_BOT_VERIFICATION_REQUIRED` errors.
 
 ---
 
@@ -34,14 +34,14 @@ This guide explains how to configure `YTDLP_COOKIES` for MediaForge so that `yt-
 
 ## Step 2 — Configure `YTDLP_COOKIES` in Your Deployment
 
-MediaForge's server (`server/ffmpeg.ts` & `server/ytDlpService.ts`) supports three flexible options:
+VideoFetch's server (`server/ffmpeg.ts` & `server/ytDlpService.ts`) supports three flexible options:
 
 ### Option A — Mount as a File (Recommended for Docker / Kubernetes / Cloud Run)
 Mount the file into your container (e.g. as a secret at `/run/secrets/ytdlp-cookies.txt`) and set:
 ```bash
 YTDLP_COOKIES=/run/secrets/ytdlp-cookies.txt
 ```
-MediaForge also checks `/run/secrets/cookies.txt` and `./cookies.txt` automatically.
+VideoFetch also checks `/run/secrets/cookies.txt` and `./cookies.txt` automatically.
 
 ### Option B — Multi-Line Environment Variable (Hosts with multi-line env support)
 Paste the raw Netscape text directly:
@@ -64,13 +64,13 @@ Set `YTDLP_COOKIES` to the resulting base64 output:
 ```bash
 YTDLP_COOKIES="IyBOZXRzY2FwZSBIVFRQIENvb2tpZSBGaWxlCg..."
 ```
-MediaForge detects base64 encoding automatically, decodes it into memory, validates the Netscape headers, and feeds it safely into `yt-dlp`.
+VideoFetch detects base64 encoding automatically, decodes it into memory, validates the Netscape headers, and feeds it safely into `yt-dlp`.
 
 ---
 
 ## Step 3 — Verify Configuration on Startup
 
-When the MediaForge server boots up, check the diagnostics in your startup log:
+When the VideoFetch server boots up, check the diagnostics in your startup log:
 ```text
 COOKIES_CONFIGURED=YES (server-side secret)
 ```
@@ -89,7 +89,7 @@ curl -s http://localhost:3000/api/health | jq .serverConfig
 
 ## Step 4 — RapidAPI Fallback Setup
 
-When `yt-dlp` faces an unexpected challenge, MediaForge automatically attempts a fallback via RapidAPI's Social Download service.
+When `yt-dlp` faces an unexpected challenge, VideoFetch automatically attempts a fallback via RapidAPI's Social Download service.
 
 1. Obtain an API key from RapidAPI for the **social-download-all-in-one** API.
 2. Configure it in your deployment environment:

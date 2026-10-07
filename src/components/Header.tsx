@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { AppRoute, LanguageCode } from '../types';
+import { AtmosphereController } from './AtmosphereController';
 
 export const Header: React.FC = () => {
   const { route, setRoute, lang, setLang, t, isRtl, theme, setTheme, user, setAuthModalOpen } = useApp();
@@ -50,7 +51,7 @@ export const Header: React.FC = () => {
   const isActive = (r: AppRoute) => route === r;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md transition-colors duration-200">
+    <header className="sticky top-0 z-50 w-full border-b border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand Logo */}
         <div className="flex items-center gap-3">
@@ -64,13 +65,13 @@ export const Header: React.FC = () => {
             </div>
             <div>
               <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5">
-                Media<span className="text-indigo-600 dark:text-indigo-400">Forge</span>
+                Video<span className="text-indigo-600 dark:text-indigo-400">Fetch</span>
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                   v2.4
                 </span>
               </span>
               <p className="hidden sm:block text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                Authorized Media Processing
+                Fast Video Downloader &amp; Media Tools
               </p>
             </div>
           </button>
@@ -80,44 +81,47 @@ export const Header: React.FC = () => {
         <nav className="hidden lg:flex items-center gap-1">
           <button
             id="nav-video-dl"
-            onClick={() => handleNav('/youtube-downloader')}
+            onClick={() => handleNav('/video-downloader')}
             className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors ${
-              isActive('/youtube-downloader')
+              isActive('/video-downloader') || isActive('/youtube-downloader')
                 ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 font-semibold'
                 : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
             <span className="flex items-center gap-1.5">
               <Video className="w-4 h-4 text-indigo-500" />
-              {t.navVideoDownloader}
+              <span>Video Downloader</span>
             </span>
           </button>
 
           <button
-            id="nav-mp3-btn"
-            onClick={() => handleNav('/video-to-mp3')}
+            id="nav-audio-dl"
+            onClick={() => handleNav('/audio-downloader')}
             className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors ${
-              isActive('/video-to-mp3')
+              isActive('/audio-downloader') || isActive('/video-to-mp3')
                 ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 font-semibold'
                 : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
             <span className="flex items-center gap-1.5">
               <Music className="w-4 h-4 text-emerald-500" />
-              {t.navMp3}
+              <span>Audio Downloader</span>
             </span>
           </button>
 
           <button
-            id="nav-mp4-btn"
-            onClick={() => handleNav('/video-to-mp4')}
+            id="nav-video-conv"
+            onClick={() => handleNav('/video-converter')}
             className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors ${
-              isActive('/video-to-mp4')
+              isActive('/video-converter') || isActive('/video-to-mp4')
                 ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 font-semibold'
                 : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            {t.navMp4}
+            <span className="flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-blue-500" />
+              <span>Video Converter</span>
+            </span>
           </button>
 
           {/* Tools Dropdown */}
@@ -128,61 +132,79 @@ export const Header: React.FC = () => {
               className="px-3.5 py-2 text-sm font-medium rounded-lg text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1"
             >
               <Layers className="w-4 h-4 text-indigo-500" />
-              {t.navTools}
+              <span>All Tools</span>
               <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isToolsOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {isToolsOpen && (
               <div
-                className={`absolute top-full mt-2 w-56 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl py-2 z-50 animate-in fade-in zoom-in-95 duration-100 ${
+                className={`absolute top-full mt-2 w-60 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl py-2 z-50 vf-slide-down ${
                   isRtl ? 'left-0' : 'right-0'
                 }`}
               >
                 <button
+                  id="tool-trimmer-btn"
+                  onClick={() => handleNav('/video-trimmer')}
+                  className="w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5 vf-btn-tactile cursor-pointer"
+                >
+                  <Scissors className="w-4 h-4 text-indigo-500" />
+                  <div>
+                    <div className="font-medium">Video Trimmer</div>
+                    <div className="text-[11px] text-slate-400">Cut &amp; slice video clips</div>
+                  </div>
+                </button>
+
+                <button
                   id="tool-thumbnail-btn"
                   onClick={() => handleNav('/thumbnail-downloader')}
-                  className="w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5"
+                  className="w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5 vf-btn-tactile cursor-pointer"
                 >
                   <ImageIcon className="w-4 h-4 text-pink-500" />
                   <div>
-                    <div className="font-medium">{t.navThumbnails}</div>
-                    <div className="text-xs text-slate-400">HD & 4K Image extraction</div>
+                    <div className="font-medium">HD Thumbnail Saver</div>
+                    <div className="text-[11px] text-slate-400">Extract 4K &amp; HD posters</div>
                   </div>
                 </button>
 
                 <button
                   id="tool-subtitle-btn"
                   onClick={() => handleNav('/subtitle-downloader')}
-                  className="w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5"
+                  className="w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5 vf-btn-tactile cursor-pointer"
                 >
                   <FileText className="w-4 h-4 text-cyan-500" />
                   <div>
-                    <div className="font-medium">{t.navSubtitles}</div>
-                    <div className="text-xs text-slate-400">SRT, VTT & TXT transcripts</div>
+                    <div className="font-medium">Subtitle Extractor</div>
+                    <div className="text-[11px] text-slate-400">SRT, VTT &amp; TXT transcripts</div>
                   </div>
                 </button>
 
                 <button
-                  id="tool-trimmer-btn"
-                  onClick={() => handleNav('/video-trimmer')}
-                  className="w-full px-4 py-2.5 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5"
+                  id="tool-4k-btn"
+                  onClick={() => handleNav('/4k-video-downloader')}
+                  className="w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5 vf-btn-tactile cursor-pointer"
                 >
-                  <Scissors className="w-4 h-4 text-indigo-500" />
+                  <Video className="w-4 h-4 text-amber-500" />
                   <div>
-                    <div className="font-medium">{t.navTrimmer}</div>
-                    <div className="text-xs text-slate-400">Cut & export clips</div>
+                    <div className="font-medium">4K Downloader</div>
+                    <div className="text-[11px] text-slate-400">Ultra HD 2160p streams</div>
                   </div>
                 </button>
 
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
                 <button
-                  id="tool-platforms-btn"
-                  onClick={() => handleNav('/supported-platforms')}
-                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2"
+                  id="tool-about-btn"
+                  onClick={() => handleNav('/about')}
+                  className="w-full px-4 py-1.5 text-left text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                 >
-                  <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
-                  {t.navPlatforms}
+                  <span>About VideoFetch</span>
+                </button>
+                <button
+                  id="tool-contact-btn"
+                  onClick={() => handleNav('/contact')}
+                  className="w-full px-4 py-1.5 text-left text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                >
+                  <span>Contact &amp; Support</span>
                 </button>
               </div>
             )}
@@ -199,7 +221,7 @@ export const Header: React.FC = () => {
           >
             <span className="flex items-center gap-1.5">
               <BookOpen className="w-4 h-4 text-indigo-500" />
-              {t.navBlog}
+              <span>Articles</span>
             </span>
           </button>
         </nav>
@@ -291,6 +313,9 @@ export const Header: React.FC = () => {
             )}
           </div>
 
+          {/* Atmospheric Environment Controller */}
+          <AtmosphereController />
+
           {/* Theme Mode Toggle */}
           <button
             id="theme-toggle-btn"
@@ -314,79 +339,89 @@ export const Header: React.FC = () => {
 
       {/* Mobile Drawer Menu */}
       {isMobileMenuOpen && (
-        <div className="lg:hidden border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-4 py-4 space-y-2 animate-in slide-in-from-top-2 duration-150">
-          <div className="grid grid-cols-2 gap-2">
+        <div className="lg:hidden border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-4 py-4 space-y-3 vf-slide-down">
+          <div className="grid grid-cols-2 gap-2 text-xs">
             <button
-              onClick={() => handleNav('/youtube-downloader')}
-              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2"
+              onClick={() => handleNav('/video-downloader')}
+              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2 vf-btn-tactile cursor-pointer"
             >
-              <Video className="w-4 h-4 text-blue-500" />
-              {t.navVideoDownloader}
+              <Video className="w-4 h-4 text-indigo-500" />
+              <span>Video Downloader</span>
             </button>
             <button
-              onClick={() => handleNav('/video-to-mp3')}
-              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2"
+              onClick={() => handleNav('/audio-downloader')}
+              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2 vf-btn-tactile cursor-pointer"
             >
               <Music className="w-4 h-4 text-emerald-500" />
-              {t.navMp3}
+              <span>Audio Downloader</span>
             </button>
             <button
-              onClick={() => handleNav('/video-to-mp4')}
-              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2"
+              onClick={() => handleNav('/video-converter')}
+              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2 vf-btn-tactile cursor-pointer"
             >
-              <Video className="w-4 h-4 text-blue-400" />
-              {t.navMp4}
-            </button>
-            <button
-              onClick={() => handleNav('/thumbnail-downloader')}
-              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2"
-            >
-              <ImageIcon className="w-4 h-4 text-pink-500" />
-              {t.navThumbnails}
-            </button>
-            <button
-              onClick={() => handleNav('/subtitle-downloader')}
-              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2"
-            >
-              <FileText className="w-4 h-4 text-cyan-500" />
-              {t.navSubtitles}
+              <Zap className="w-4 h-4 text-blue-500" />
+              <span>Video Converter</span>
             </button>
             <button
               onClick={() => handleNav('/video-trimmer')}
-              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2"
+              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2 vf-btn-tactile cursor-pointer"
             >
               <Scissors className="w-4 h-4 text-violet-500" />
-              {t.navTrimmer}
+              <span>Video Trimmer</span>
+            </button>
+            <button
+              onClick={() => handleNav('/thumbnail-downloader')}
+              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2 vf-btn-tactile cursor-pointer"
+            >
+              <ImageIcon className="w-4 h-4 text-pink-500" />
+              <span>Thumbnail Saver</span>
+            </button>
+            <button
+              onClick={() => handleNav('/subtitle-downloader')}
+              className="p-3 text-left rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-medium text-slate-800 dark:text-slate-200 flex items-center gap-2 vf-btn-tactile cursor-pointer"
+            >
+              <FileText className="w-4 h-4 text-cyan-500" />
+              <span>Subtitles Tool</span>
             </button>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-2">
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-2 text-xs">
             <button
-              onClick={() => handleNav('/dashboard')}
-              className="px-3 py-2 text-xs font-semibold rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center gap-1.5"
+              onClick={() => handleNav('/about')}
+              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 cursor-pointer"
             >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              {t.navDashboard}
+              About
             </button>
             <button
-              onClick={() => handleNav('/status')}
-              className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 flex items-center gap-1.5"
+              onClick={() => handleNav('/contact')}
+              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 cursor-pointer"
             >
-              <Activity className="w-3.5 h-3.5 text-emerald-500" />
-              {t.navStatus}
+              Contact
+            </button>
+            <button
+              onClick={() => handleNav('/privacy-policy')}
+              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 cursor-pointer"
+            >
+              Privacy
+            </button>
+            <button
+              onClick={() => handleNav('/terms')}
+              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 cursor-pointer"
+            >
+              Terms
+            </button>
+            <button
+              onClick={() => handleNav('/dmca')}
+              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 cursor-pointer"
+            >
+              DMCA
             </button>
             <button
               onClick={() => handleNav('/blog')}
-              className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer"
             >
               <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
-              {t.navBlog}
-            </button>
-            <button
-              onClick={() => handleNav('/how-it-works')}
-              className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300"
-            >
-              {t.navHowItWorks}
+              <span>Articles</span>
             </button>
           </div>
         </div>

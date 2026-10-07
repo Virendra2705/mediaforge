@@ -1,0 +1,54 @@
+# VideoFetch — Fast Video Downloader & Media Tools
+# robots.txt
+
+# Google AdSense Crawler Optimization
+User-agent: Mediapartners-Google
+Allow: /
+
+User-agent: *
+Allow: /
+Allow: /ads.txt
+Allow: /assets/
+Allow: /blog
+Allow: /video-downloader
+Allow: /online-video-downloader
+Allow: /4k-video-downloader
+Allow: /hd-video-downloader
+Allow: /video-to-mp3
+Allow: /audio-downloader
+Allow: /video-converter
+Allow: /video-trimmer
+Allow: /thumbnail-downloader
+Allow: /subtitle-downloader
+Allow: /youtube-video-downloader
+Allow: /youtube-shorts-downloader
+Allow: /tiktok-video-downloader
+Allow: /instagram-video-downloader
+Allow: /x-video-downloader
+Allow: /vimeo-video-downloader
+Allow: /pinterest-video-downloader
+Allow: /bilibili-video-downloader
+Allow: /supported-platforms
+Allow: /how-it-works
+Allow: /faq
+Allow: /about
+Allow: /contact
+Allow: /privacy
+Allow: /privacy-policy
+Allow: /terms
+Allow: /dmca
+Allow: /copyright
+Allow: /security
+Allow: /status
+Allow: /changelog
+
+# Disallow private application endpoints and ephemeral tokens
+Disallow: /api/
+Disallow: /admin
+Disallow: /admin/
+Disallow: /dashboard
+Disallow: /api/download/file/
+Disallow: /temp/
+Disallow: /temp_media/
+
+Sitemap: https://videofetch.app/sitemap.xml
