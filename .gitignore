@@ -7,3 +7,4 @@ build/
 .cache/
 *.log
 .DS_Store
+temp_media/
