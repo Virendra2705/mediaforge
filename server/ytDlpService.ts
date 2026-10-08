@@ -1214,7 +1214,7 @@ export class YtDlpService {
         }
       } catch (ytdlErr: any) {
         lastError = ytdlErr;
-        console.log(`[YtDlpService] Extraction attempt notice (${attempt.name}):`, sanitizeLogMessage((ytdlErr?.message || '').split('\n')[0]));
+        console.log(`[YtDlpService] Extraction attempt notice (${attempt.name}):`, sanitizeLogMessage(ytdlErr?.message || 'Unknown yt-dlp error'));
       }
     }
 
