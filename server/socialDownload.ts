@@ -211,19 +211,6 @@ export function convertSocialApiToMetadata(social: SocialApiResponse, targetUrl:
   }
 
   // Ensure an MP3 option is present
-  if (!formats.some(f => f.format === 'mp3' || !f.hasVideo)) {
-    formats.push({
-      id: 'social_audio_mp3',
-      format: 'mp3',
-      quality: '320 kbps High Quality Audio',
-      hasAudio: true,
-      hasVideo: false,
-      fileSizeBytes: 5 * 1024 * 1024,
-      fileSizeFormatted: '5.0 MB',
-      directUrl: social.medias?.[0]?.url || targetUrl,
-    });
-  }
-
   const provider = (social.source || 'social').toLowerCase();
 
   return {
@@ -366,14 +353,6 @@ async function fallbackExtractViaYtDlp(targetUrl: string): Promise<SocialApiResp
     }
 
     // Audio format
-    medias.push({
-      url: targetUrl,
-      quality: 'audio',
-      extension: 'mp3',
-      type: 'audio',
-      duration: meta.duration,
-    });
-
     // Identify source
     let source = 'social';
     const lower = targetUrl.toLowerCase();

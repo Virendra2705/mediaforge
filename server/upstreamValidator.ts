@@ -15,6 +15,7 @@ export interface UpstreamValidationResult {
     | 'UPSTREAM_NOT_MEDIA'
     | 'UPSTREAM_HTML_CHALLENGE'
     | 'UPSTREAM_AUTH_REQUIRED'
+    | 'UPSTREAM_MEDIA_UNAVAILABLE'
     | 'UPSTREAM_BOT_PROTECTION'
     | 'UPSTREAM_ACCESS_DENIED'
     | 'MEDIA_SIGNATURE_INVALID'
@@ -430,17 +431,29 @@ export async function fetchAndValidateMediaStream(
       // Check for HTTP Error Statuses
       if (status === 401 || status === 403) {
         let host = 'unknown';
-        try { host = new URL(currentUrl).hostname; } catch {}
-        console.log(`[Upstream Stream Guard] Authentication required from ${host} (status: ${status})`);
-        const isYouTubeCdn = host.includes('googlevideo.com') || (currentUrl.includes('videoplayback') && currentUrl.includes('ip='));
+
+        try {
+          host = new URL(currentUrl).hostname;
+        } catch {}
+
+        const isYouTubeCdn =
+          host.includes('googlevideo.com') ||
+          currentUrl.includes('videoplayback');
+
+        console.log(
+          `[Upstream Stream Guard] HTTP ${status} from ${host}`
+        );
+
         return {
           valid: false,
           statusCode: status,
           finalUrl: currentUrl,
           contentType,
-          errorCategory: 'UPSTREAM_AUTH_REQUIRED',
+          errorCategory: isYouTubeCdn
+            ? 'UPSTREAM_MEDIA_UNAVAILABLE'
+            : 'UPSTREAM_AUTH_REQUIRED',
           errorMessage: isYouTubeCdn
-            ? 'Upstream YouTube CDN enforces client IP-pinning (requires authentication / cookies).'
+            ? 'The resolved YouTube media stream is not accessible from the server.'
             : 'The upstream media provider requires authentication or blocked access.',
         };
       }
