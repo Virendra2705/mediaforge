@@ -1247,7 +1247,7 @@ export class YtDlpService {
             if (!streamValidation.valid) {
               const isYouTubeCdn = targetMedia.url.includes('googlevideo.com') || (targetMedia.url.includes('videoplayback') && targetMedia.url.includes('ip='));
               if (streamValidation.statusCode === 403 && isYouTubeCdn) {
-                rapidApiFallbackDetail = 'YouTube CDN enforces IP-pinning on stream URLs (requires authentic cookies)';
+                rapidApiFallbackDetail = 'YouTube CDN rejected the resolved media URL from the Render server (HTTP 403)';
               } else {
                 const statusPart = streamValidation.statusCode ? `status ${streamValidation.statusCode}` : (streamValidation.errorCategory || 'validation failed');
                 const msgPart = streamValidation.errorMessage ? `: ${streamValidation.errorMessage}` : '';
