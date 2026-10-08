@@ -511,7 +511,26 @@ export class YtDlpService {
       };
     }
 
-    // 4. Upstream Bot Verification / Challenge (YouTube bot verification, Cloudflare, CAPTCHA, Turnstile)
+    // 4. Resolved provider media is inaccessible from this server.
+    // This must be checked before bot-verification classification because
+    // yt-dlp may have failed first while a provider fallback also failed.
+    const fallbackDetailLower = String(err?.fallbackDetail || '').toLowerCase();
+    if (
+      rawMsg.includes('UPSTREAM_MEDIA_UNAVAILABLE') ||
+      fallbackDetailLower.includes('youtube cdn rejected') ||
+      fallbackDetailLower.includes('resolved url failed validation') ||
+      fallbackDetailLower.includes('media stream is not accessible') ||
+      fallbackDetailLower.includes('upstream media is unavailable')
+    ) {
+      return {
+        code: 'UPSTREAM_MEDIA_UNAVAILABLE',
+        message: 'The provider returned a media stream that is not accessible from the server.',
+        userMessage: 'This provider returned media that is not accessible from the server. Please try another supported URL.',
+        exitCode,
+      };
+    }
+
+    // 5. Upstream Bot Verification / Challenge (YouTube bot verification, Cloudflare, CAPTCHA, Turnstile)
     if (
       msgLower.includes('sign in to confirm you’re not a bot') ||
       msgLower.includes('sign in to confirm you\'re not a bot') ||
@@ -534,7 +553,7 @@ export class YtDlpService {
       };
     }
 
-    // 5. Hosting / Cloud Network IP Restriction
+    // 6. Hosting / Cloud Network IP Restriction
     if (
       msgLower.includes('datacenter ip') ||
       msgLower.includes('cloud hosting ip') ||

@@ -291,9 +291,35 @@ const tests: TestCase[] = [
     },
   },
 
-  // Test 12: Cryptographic Session Token Issuance and Verification
+  // Test 12: Structured Error Classification when provider media is inaccessible
   {
-    name: '12. Cryptographic Session Token Issuance and Verification',
+    name: '12. Structured UPSTREAM_MEDIA_UNAVAILABLE Classification',
+    run: async () => {
+      const providerError = {
+        message: 'yt-dlp extraction failed: Sign in to confirm you’re not a bot.',
+        fallbackDetail: 'YouTube CDN rejected the resolved media URL from the Render server (HTTP 403)',
+      };
+
+      const expectedCode = 'UPSTREAM_MEDIA_UNAVAILABLE';
+      const classification = ytDlpService.classifyError(providerError);
+
+      if (classification.code === expectedCode) {
+        return {
+          passed: true,
+          details: `Correctly classified inaccessible provider media as ${expectedCode}.`,
+        };
+      }
+
+      return {
+        passed: false,
+        details: `Expected=${expectedCode}, actual=${classification.code}`,
+      };
+    },
+  },
+
+  // Test 13: Cryptographic Session Token Issuance and Verification
+  {
+    name: '13. Cryptographic Session Token Issuance and Verification',
     run: async () => {
       const demoUser: SessionUser = {
         id: 'usr_test_999',
