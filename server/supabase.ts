@@ -125,17 +125,32 @@ class SupabaseStorageManager {
 
       const existing = buckets?.find(b => b.name === STORAGE_BUCKET);
       if (!existing) {
-        // Create bucket as strictly PRIVATE (public: false)
+        // Create a private bucket using a configurable upload-size limit.
+        const configuredLimitMb = Number(
+          process.env.SUPABASE_FILE_SIZE_LIMIT_MB || 25
+        );
+
+        if (!Number.isFinite(configuredLimitMb) || configuredLimitMb <= 0) {
+          return {
+            success: false,
+            error: 'SUPABASE_FILE_SIZE_LIMIT_MB must be a positive number',
+          };
+        }
+
         const { error: createError } = await this.client.storage.createBucket(STORAGE_BUCKET, {
           public: false,
-          fileSizeLimit: 1024 * 1024 * 500, // 500MB limit
+          fileSizeLimit: Math.floor(configuredLimitMb * 1024 * 1024),
         });
+
         if (createError) {
-          console.log(`[Supabase Storage] Could not create bucket "${STORAGE_BUCKET}":`, createError.message);
+          console.log(
+            `[Supabase Storage] Could not create bucket "${STORAGE_BUCKET}":`,
+            createError.message
+          );
           return { success: false, error: createError.message };
-        } else {
-          console.log(`[Supabase Storage] Created private bucket: "${STORAGE_BUCKET}"`);
         }
+
+        console.log(`[Supabase Storage] Created private bucket: "${STORAGE_BUCKET}"`);
       }
       this.bucketInitialized = true;
       return { success: true };
@@ -221,15 +236,28 @@ class SupabaseStorageManager {
     }
 
     if (!this.client) {
-      // Running in local storage mode
-      return { success: true, path: objectPath };
+      console.log(
+        '[Supabase Storage] Remote upload skipped: Supabase client is not configured.'
+      );
+
+      return {
+        success: false,
+        path: objectPath,
+        error: 'Supabase client is not configured; file was not uploaded remotely.',
+      };
     }
 
     try {
       const bucketResult = await this.ensureBucket();
       if (!bucketResult.success) {
-        console.log(`[Supabase Storage] Notice: Bucket access error (${bucketResult.error}). Operating in direct local storage mode.`);
-        return { success: true, path: objectPath };
+        console.log(
+          `[Supabase Storage] Remote upload aborted: bucket initialization failed (${bucketResult.error}).`
+        );
+        return {
+          success: false,
+          path: objectPath,
+          error: `Supabase bucket initialization failed: ${bucketResult.error}`,
+        };
       }
 
       const { data, error } = await this.client.storage
