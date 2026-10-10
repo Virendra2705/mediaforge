@@ -268,14 +268,31 @@ class SupabaseStorageManager {
         });
 
       if (error) {
-        console.log(`[Supabase Storage] Remote upload notification (${error.message}). File verified in local storage.`);
-        return { success: true, path: objectPath };
+        console.error(
+          `[Supabase Storage] Remote upload failed for "${objectPath}": ${error.message}`
+        );
+
+        return {
+          success: false,
+          path: objectPath,
+          error: `Supabase upload failed: ${error.message}`,
+        };
       }
 
       return { success: true, path: data?.path || objectPath };
-    } catch (err: any) {
-      console.log('[Supabase Storage] Upload exception notice:', err.message);
-      return { success: true, path: objectPath };
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown upload exception';
+
+      console.error(
+        `[Supabase Storage] Upload exception for "${objectPath}": ${message}`
+      );
+
+      return {
+        success: false,
+        path: objectPath,
+        error: `Supabase upload exception: ${message}`,
+      };
     }
   }
 
