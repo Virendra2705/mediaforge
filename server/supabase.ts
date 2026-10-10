@@ -279,7 +279,11 @@ class SupabaseStorageManager {
         };
       }
 
-      return { success: true, path: data?.path || objectPath };
+      const uploadedPath = data?.path || objectPath;
+      console.log(
+        `[Supabase Storage] Remote upload succeeded: path="${uploadedPath}"`
+      );
+      return { success: true, path: uploadedPath };
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'Unknown upload exception';
