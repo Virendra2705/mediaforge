@@ -17,6 +17,12 @@ import { createSessionToken, verifySessionToken, SessionUser } from './auth.js';
 import { validateAndNormalizeUrl, validateAndNormalizeUrlAsync } from './security.js';
 import { ytDlpService } from './ytDlpService.js';
 
+// Test-only secret for regression tests. Never use this value in production.
+if (!process.env.AUTH_SECRET?.trim()) {
+  process.env.AUTH_SECRET = 'local-regression-test-secret-only';
+}
+
+
 interface TestCase {
   name: string;
   run: () => Promise<{ passed: boolean; details?: string }>;
