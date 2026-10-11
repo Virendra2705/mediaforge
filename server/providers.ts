@@ -384,8 +384,8 @@ export class YouTubeProvider implements MediaProvider {
         codec: 'AVC1 (H.264) + AAC Audio',
         hasAudio: true,
         hasVideo: true,
-        fileSizeBytes: 84 * 1024 * 1024,
-        fileSizeFormatted: '84.2 MB',
+        fileSizeBytes: 0,
+        fileSizeFormatted: 'Estimate unavailable',
       },
       {
         id: 'yt_mp4_720',
@@ -396,8 +396,8 @@ export class YouTubeProvider implements MediaProvider {
         codec: 'AVC1 (H.264) + AAC Audio',
         hasAudio: true,
         hasVideo: true,
-        fileSizeBytes: 42 * 1024 * 1024,
-        fileSizeFormatted: '42.0 MB',
+        fileSizeBytes: 0,
+        fileSizeFormatted: 'Estimate unavailable',
       },
       {
         id: 'yt_mp4_480',
@@ -408,8 +408,8 @@ export class YouTubeProvider implements MediaProvider {
         codec: 'AVC1 (H.264) + AAC Audio',
         hasAudio: true,
         hasVideo: true,
-        fileSizeBytes: 21 * 1024 * 1024,
-        fileSizeFormatted: '21.5 MB',
+        fileSizeBytes: 0,
+        fileSizeFormatted: 'Estimate unavailable',
       },
       {
         id: 'yt_mp4_360',
@@ -420,8 +420,8 @@ export class YouTubeProvider implements MediaProvider {
         codec: 'AVC1 (H.264) + AAC Audio',
         hasAudio: true,
         hasVideo: true,
-        fileSizeBytes: 14 * 1024 * 1024,
-        fileSizeFormatted: '14.1 MB',
+        fileSizeBytes: 0,
+        fileSizeFormatted: 'Estimate unavailable',
       },
       {
         id: 'yt_mp3_320',
@@ -431,8 +431,8 @@ export class YouTubeProvider implements MediaProvider {
         codec: 'MPEG-1 Layer 3 (LAME)',
         hasAudio: true,
         hasVideo: false,
-        fileSizeBytes: 8.2 * 1024 * 1024,
-        fileSizeFormatted: '8.2 MB',
+        fileSizeBytes: 0,
+        fileSizeFormatted: 'Estimate unavailable',
       },
       {
         id: 'yt_mp3_192',
@@ -442,8 +442,8 @@ export class YouTubeProvider implements MediaProvider {
         codec: 'MPEG-1 Layer 3 (LAME)',
         hasAudio: true,
         hasVideo: false,
-        fileSizeBytes: 4.8 * 1024 * 1024,
-        fileSizeFormatted: '4.8 MB',
+        fileSizeBytes: 0,
+        fileSizeFormatted: 'Estimate unavailable',
       },
       {
         id: 'yt_m4a_128',
@@ -453,8 +453,8 @@ export class YouTubeProvider implements MediaProvider {
         codec: 'AAC-LC',
         hasAudio: true,
         hasVideo: false,
-        fileSizeBytes: 3.2 * 1024 * 1024,
-        fileSizeFormatted: '3.2 MB',
+        fileSizeBytes: 0,
+        fileSizeFormatted: 'Estimate unavailable',
       },
     ];
 
