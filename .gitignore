@@ -9,3 +9,4 @@ build/
 *.log
 .DS_Store
 temp_media/
+/yt-dlp
