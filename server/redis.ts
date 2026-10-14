@@ -52,8 +52,8 @@ class RedisManager {
   }
 
   public initClient() {
-    const rawUrl = process.env.UPSTASH_REDIS_REST_URL || 'https://genuine-hound-39524.upstash.io';
-    const rawToken = process.env.UPSTASH_REDIS_REST_TOKEN || 'AZpkAAIgcDFhZjY4YTdiMWYwMGE0ODBmYjBmNjNiZTgzYzUyZmE4NA';
+    const rawUrl = process.env.UPSTASH_REDIS_REST_URL;
+    const rawToken = process.env.UPSTASH_REDIS_REST_TOKEN;
 
     const url = sanitizeEnvValue(rawUrl);
     const token = sanitizeEnvValue(rawToken);

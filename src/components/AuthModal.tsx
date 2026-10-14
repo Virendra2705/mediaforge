@@ -27,10 +27,12 @@ export const AuthModal: React.FC = () => {
   const handleQuickDemo = (role: 'admin' | 'user') => {
     if (role === 'admin') {
       setEmail('alex.morgan@example.com');
-      handleLogin('alex.morgan@example.com');
+      setPassword('');
+      setErrorMessage(null);
     } else {
       setEmail('sarah.c@example.com');
-      handleLogin('sarah.c@example.com');
+      setPassword('');
+      setErrorMessage(null);
     }
   };
 
@@ -165,10 +167,11 @@ export const AuthModal: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                    Password <span className="text-slate-400 font-normal">(Optional for demo)</span>
+                    Password
                   </label>
                   <input
                     type="password"
+                    required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"

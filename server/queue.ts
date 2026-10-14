@@ -30,7 +30,10 @@ export class BackgroundJobQueue {
    * Create a new media job and add to queue
    */
   public createJob(params: {
+    id?: string;
     userId?: string;
+    anonymousCapabilityHash?: string;
+    anonymousCapabilityExpiresAt?: string;
     sourceUrl: string;
     provider: string;
     mediaTitle: string;
@@ -43,7 +46,7 @@ export class BackgroundJobQueue {
     directUrl?: string;
     trimParams?: { startTime: number; endTime: number };
   }): MediaJob {
-    const id = `job_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const id = params.id || `job_${crypto.randomUUID()}`;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 15 * 60 * 1000); // 15 minutes TTL
 
@@ -54,6 +57,8 @@ export class BackgroundJobQueue {
     const job: MediaJob = {
       id,
       userId: params.userId || 'usr_anonymous',
+      anonymousCapabilityHash: params.anonymousCapabilityHash,
+      anonymousCapabilityExpiresAt: params.anonymousCapabilityExpiresAt,
       sourceUrl: params.sourceUrl,
       provider: params.provider,
       mediaTitle: params.mediaTitle,
@@ -97,6 +102,7 @@ export class BackgroundJobQueue {
     try {
       // Step 1: Analyzing & Demuxing (0.3s)
       await this.delay(300);
+      if (this.isJobCancelled(jobId)) return;
       this.updateJob(jobId, {
         status: 'ANALYZING',
         progress: 20,
@@ -141,13 +147,20 @@ export class BackgroundJobQueue {
         trimParams: job.trimParams,
       });
 
-      if (this.isJobCancelled(jobId)) return;
+      if (this.isJobCancelled(jobId)) {
+        await this.cleanupCancelledJob(jobId);
+        return;
+      }
 
       // Validate media file with ffprobe before upload
       const validation = await validateMediaFile(
         ffmpegOutput.filePath,
         job.formatType === 'audio' ? 'audio' : 'video'
       );
+      if (this.isJobCancelled(jobId)) {
+        await this.cleanupCancelledJob(jobId);
+        return;
+      }
       if (!validation.valid) {
         throw new Error(`Media validation failed: ${validation.error}`);
       }
@@ -162,6 +175,10 @@ export class BackgroundJobQueue {
       const storagePath = `temp/${jobId}/${cleanFilename}`;
       const fileBuffer = await fs.promises.readFile(ffmpegOutput.filePath);
       const sha256 = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+      if (this.isJobCancelled(jobId)) {
+        await this.cleanupCancelledJob(jobId);
+        return;
+      }
 
       // Update storage path in db so verification and storage match
       this.updateJob(jobId, {
@@ -179,18 +196,31 @@ export class BackgroundJobQueue {
         ffmpegOutput.mimeType
       );
 
+      if (this.isJobCancelled(jobId)) {
+        await this.cleanupCancelledJob(jobId, storagePath);
+        return;
+      }
+
       if (!uploadRes.success) {
         throw new Error(`Storage upload failed: ${uploadRes.error || 'Unknown upload error'}`);
       }
 
       // Step 5: Strict 10-Point Pre-READY Verification
       const artifactCheck = await verifyDownloadArtifact(jobId);
+      if (this.isJobCancelled(jobId)) {
+        await this.cleanupCancelledJob(jobId, storagePath);
+        return;
+      }
       if (!artifactCheck.valid) {
         throw new Error(`Download artifact verification failed: ${artifactCheck.error || 'Invalid media artifact'}`);
       }
 
       // Step 6: Generate short-lived signed URL for private storage
       const signedRes = await supabaseStorage.createSignedDownloadUrl(storagePath, 300);
+      if (this.isJobCancelled(jobId)) {
+        await this.cleanupCancelledJob(jobId, storagePath);
+        return;
+      }
 
       const token = generateDownloadToken({
         jobId,
@@ -216,13 +246,15 @@ export class BackgroundJobQueue {
       console.log('[Media Pipeline 15-Point Diagnostics]');
       console.log(`1. Job ID:               ${jobId}`);
       console.log(`2. User ID:              ${job.userId || 'usr_anonymous'}`);
-      console.log(`3. Source URL:           ${job.sourceUrl}`);
+      console.log(`3. Source URL:           [redacted; host=${sourceHostname}]`);
       console.log(`4. Source Hostname:      ${sourceHostname}`);
       console.log(`5. Provider:             ${job.provider}`);
       console.log(`6. Format Type:          ${job.formatType}`);
       console.log(`7. Selected Format:      ${job.selectedFormat}`);
       console.log(`8. Selected Quality:     ${job.selectedQuality}`);
-      console.log(`9. Direct URL Used:      ${directUrl || job.sourceUrl}`);
+      let directHostname = 'unknown';
+      try { directHostname = new URL(directUrl || job.sourceUrl || '').hostname || 'unknown'; } catch {}
+      console.log(`9. Direct URL Used:      [redacted; host=${directHostname}]`);
       console.log(`10. Local File Path:     ${ffmpegOutput.filePath}`);
       console.log(`11. File Size Bytes:     ${ffmpegOutput.fileSizeBytes}`);
       console.log(`12. MIME Type:           ${ffmpegOutput.mimeType}`);
@@ -248,6 +280,10 @@ export class BackgroundJobQueue {
 
       db.addAuditLog('JOB_COMPLETED', '127.0.0.1', `Job ${jobId} ready in storage (${storagePath}, ${ffmpegOutput.fileSizeBytes} bytes).`);
     } catch (err: any) {
+      if (this.isJobCancelled(jobId)) {
+        await this.cleanupCancelledJob(jobId, db.jobs.get(jobId)?.storagePath);
+        return;
+      }
       // 1. Immediately remove any partial or incomplete local files for this job
       const jobDir = path.join(TEMP_MEDIA_DIR, jobId);
       if (fs.existsSync(jobDir)) {
@@ -303,13 +339,21 @@ export class BackgroundJobQueue {
 
   private isJobCancelled(jobId: string): boolean {
     const job = db.jobs.get(jobId);
-    return !job || job.status === 'CANCELLED';
+    return !job || job.status === 'CANCELLED' || job.status === 'EXPIRED';
+  }
+
+  private async cleanupCancelledJob(jobId: string, storagePath?: string): Promise<void> {
+    if (storagePath) await supabaseStorage.deleteMediaFile(storagePath).catch(() => {});
+    const jobDir = path.resolve(TEMP_MEDIA_DIR, jobId);
+    if (jobDir.startsWith(`${path.resolve(TEMP_MEDIA_DIR)}${path.sep}`) && fs.existsSync(jobDir)) {
+      try { fs.rmSync(jobDir, { recursive: true, force: true }); } catch {}
+    }
   }
 
   public cancelJob(jobId: string): boolean {
     const job = db.jobs.get(jobId);
     if (!job) return false;
-    if (job.status === 'READY' || job.status === 'FAILED') return false;
+    if (job.status === 'READY' || job.status === 'FAILED' || job.status === 'EXPIRED' || job.status === 'CANCELLED') return false;
 
     ytDlpService.cancelJobProcess(jobId);
 

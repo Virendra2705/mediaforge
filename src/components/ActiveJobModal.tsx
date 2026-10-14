@@ -56,6 +56,7 @@ export const ActiveJobModal: React.FC = () => {
       if (!downloadUrl) {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+        if (activeJob.jobCapability) headers['X-Job-Capability'] = activeJob.jobCapability;
 
         const res = await fetch('/api/download', {
           method: 'POST',

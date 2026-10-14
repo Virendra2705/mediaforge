@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import dns from 'dns';
+import net from 'node:net';
 import { Request } from 'express';
+import { isGlobalAddress } from './outboundHttp.js';
 
 // In-memory rate limit store
 interface RateLimitRecord {
@@ -9,23 +11,6 @@ interface RateLimitRecord {
 }
 const rateLimitMap = new Map<string, RateLimitRecord>();
 
-// Blocked private IP ranges and local hostnames for SSRF protection
-const BLOCKED_HOST_PATTERNS = [
-  /^localhost$/i,
-  /^127\.\d+\.\d+\.\d+$/,
-  /^10\.\d+\.\d+\.\d+$/,
-  /^172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+$/,
-  /^192\.168\.\d+\.\d+$/,
-  /^169\.254\.\d+\.\d+$/,
-  /^0\.0\.0\.0$/,
-  /^::1$/,
-  /^fe80:/i,
-  /^fc00:/i,
-  /^fd00:/i,
-  /\.internal$/i,
-  /\.local$/i,
-];
-
 // Blocked domains (e.g. copyright takedown blocked URLs)
 export const blockedDomains = new Set<string>();
 
@@ -33,36 +18,7 @@ export const blockedDomains = new Set<string>();
  * Helper to check if an IP address is in a private, loopback, link-local, or multicast range
  */
 export function isPrivateIp(ip: string): boolean {
-  if (ip.includes('.')) {
-    const parts = ip.split('.').map(Number);
-    if (parts.length !== 4 || parts.some(isNaN)) return true;
-    // 0.0.0.0/8
-    if (parts[0] === 0) return true;
-    // 127.0.0.0/8 (loopback)
-    if (parts[0] === 127) return true;
-    // 10.0.0.0/8 (private)
-    if (parts[0] === 10) return true;
-    // 172.16.0.0/12 (private)
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-    // 192.168.0.0/16 (private)
-    if (parts[0] === 192 && parts[1] === 168) return true;
-    // 169.254.0.0/16 (link-local, cloud metadata)
-    if (parts[0] === 169 && parts[1] === 254) return true;
-    // 224.0.0.0/4 (multicast & reserved)
-    if (parts[0] >= 224) return true;
-  }
-
-  const lower = ip.toLowerCase();
-  if (
-    lower === '::1' ||
-    lower === '::' ||
-    lower.startsWith('fe80:') ||
-    lower.startsWith('fc00:') ||
-    lower.startsWith('fd00:')
-  ) {
-    return true;
-  }
-  return false;
+  return !isGlobalAddress(ip);
 }
 
 /**
@@ -95,13 +51,20 @@ export function validateAndNormalizeUrl(rawUrl: string): {
     return { isValid: false, error: 'Only HTTP and HTTPS protocols are supported.' };
   }
 
-  const host = parsed.hostname.toLowerCase();
+  if (parsed.username || parsed.password || /^https?:\/\/[^/?#]*@/i.test(trimmed)) {
+    return { isValid: false, error: 'URLs containing credentials are not permitted.' };
+  }
+  const expectedPort = parsed.protocol === 'https:' ? '443' : '80';
+  if (parsed.port && parsed.port !== expectedPort) {
+    return { isValid: false, error: 'Only standard HTTP and HTTPS ports are permitted.' };
+  }
 
-  // Check SSRF blocked hostnames and IP patterns
-  for (const pattern of BLOCKED_HOST_PATTERNS) {
-    if (pattern.test(host)) {
-      return { isValid: false, error: 'Access to local or private network addresses is forbidden for security.' };
-    }
+  const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+
+  // Address literals are checked using the same global-unicast policy as the
+  // pinned outbound transport, including IPv4-mapped IPv6 and reserved ranges.
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || (net.isIP(host) && isPrivateIp(host))) {
+    return { isValid: false, error: 'Access to local, private, or reserved network addresses is forbidden.' };
   }
 
   // Check blocked domains from DMCA/Admin blocklist
@@ -140,7 +103,7 @@ export async function validateAndNormalizeUrlAsync(rawUrl: string): Promise<{
       return { isValid: false, error: `Could not resolve hostname '${host}'.` };
     }
     for (const record of records) {
-      if (isPrivateIp(record.address)) {
+      if (!isGlobalAddress(record.address)) {
         return {
           isValid: false,
           error: 'Access to private or internal network IP addresses is strictly forbidden.',
@@ -218,9 +181,10 @@ export function generateDownloadToken(payload: Omit<TokenPayload, 'expiresAt'>, 
   tokenStore.set(token, { ...payload, expiresAt });
 
   // Schedule cleanup
-  setTimeout(() => {
+  const cleanupTimer = setTimeout(() => {
     tokenStore.delete(token);
   }, ttlMinutes * 60 * 1000 + 5000);
+  cleanupTimer.unref?.();
 
   return token;
 }
@@ -233,7 +197,7 @@ export function verifyDownloadToken(token: string): TokenPayload | null {
   const item = tokenStore.get(token);
   if (!item) return null;
 
-  if (Date.now() > item.expiresAt) {
+  if (Date.now() >= item.expiresAt) {
     tokenStore.delete(token);
     return null;
   }
@@ -284,13 +248,14 @@ export function verifyStorageSignedToken(
     return { isValid: false, error: 'Download authorization signature token is missing.', statusCode: 401 };
   }
 
-  const expires = parseInt(expiresStr, 10);
-  if (isNaN(expires)) {
+  if (!/^\d+$/.test(expiresStr)) {
     return { isValid: false, error: 'Invalid expiration timestamp format.', statusCode: 400 };
   }
+  const expires = Number(expiresStr);
+  if (!Number.isSafeInteger(expires)) return { isValid: false, error: 'Invalid expiration timestamp format.', statusCode: 400 };
 
   const now = Math.floor(Date.now() / 1000);
-  if (now > expires) {
+  if (now >= expires) {
     return { isValid: false, error: 'Download authorization token has expired. Please generate a new download link.', statusCode: 410 };
   }
 

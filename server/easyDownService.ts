@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { readSafeHttpResponseText, requestSafeHttp } from './outboundHttp.js';
+import { validateAndNormalizeUrlAsync } from './security.js';
 
 /**
  * Supported Social Media Platforms for EasyDown API
@@ -421,6 +423,15 @@ export async function parseWithEasyDownApi(
   targetUrl: string,
   customToken?: string
 ): Promise<EasyDownParseResult> {
+  const outboundUrl = await validateAndNormalizeUrlAsync(targetUrl);
+  if (!outboundUrl.isValid || !outboundUrl.normalizedUrl) {
+    return {
+      success: false,
+      data: null,
+      error: { code: 'INVALID_URL', message: outboundUrl.error || 'Invalid or restricted URL.', status: 400 },
+    };
+  }
+  targetUrl = outboundUrl.normalizedUrl;
   const sanitize = validateAndSanitizeUrl(targetUrl);
   if (!sanitize.valid) {
     return {
@@ -454,11 +465,11 @@ export async function parseWithEasyDownApi(
   const endpoint = 'https://api.easydown.org/api/v1/parse';
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
-    const response = await fetch(endpoint, {
+    const response = await requestSafeHttp(endpoint, {
       method: 'POST',
+      maxRedirects: 0,
+      maxResponseBytes: 2 * 1024 * 1024,
+      overallTimeoutMs: 15000,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
@@ -468,12 +479,8 @@ export async function parseWithEasyDownApi(
       body: JSON.stringify({
         url: sanitizedUrl,
       }),
-      signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
-
-    const responseText = await response.text();
+    const responseText = await readSafeHttpResponseText(response);
     let json: any = null;
     try {
       json = JSON.parse(responseText);
@@ -481,8 +488,8 @@ export async function parseWithEasyDownApi(
       json = null;
     }
 
-    if (!response.ok) {
-      const statusCode = response.status;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      const statusCode = response.statusCode;
       let errorCode = 'EASYDOWN_API_ERROR';
       let clientMessage = 'Unable to parse media with EasyDown API.';
 

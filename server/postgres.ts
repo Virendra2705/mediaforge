@@ -1,7 +1,44 @@
 import pg from 'pg';
+import { X509Certificate } from 'node:crypto';
 import { MediaJob, DmcaReport, ContactMessage, BlogPost, SystemSettings, AuditLog, UserAccount } from './types.js';
 
 const { Pool } = pg;
+
+const TLS_CONNECTION_PARAMETERS = ['ssl', 'sslmode', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslnegotiation', 'uselibpqcompat'];
+
+export function markPostgresUnavailable(state: { isConnected: boolean; connectionError: string | null }): void {
+  state.isConnected = false;
+  state.connectionError = 'Database connection failed.';
+}
+
+export function sanitizePostgresConnectionString(connectionString: string): string {
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    throw new Error('DATABASE_URL is invalid.');
+  }
+  if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+    throw new Error('DATABASE_URL must use PostgreSQL.');
+  }
+  for (const parameter of TLS_CONNECTION_PARAMETERS) url.searchParams.delete(parameter);
+  return url.toString();
+}
+
+export function getPostgresSslOptions(caCertificate?: string): { rejectUnauthorized: true; ca?: string } {
+  const ca = caCertificate?.trim();
+  if (!ca) return { rejectUnauthorized: true };
+  const certificates = ca.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g);
+  if (!certificates?.length || ca.replace(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g, '').trim()) {
+    throw new Error('DATABASE_CA_CERT must contain a valid PEM certificate.');
+  }
+  try {
+    for (const certificate of certificates) new X509Certificate(certificate);
+  } catch {
+    throw new Error('DATABASE_CA_CERT must contain a valid PEM certificate.');
+  }
+  return { rejectUnauthorized: true, ca };
+}
 
 export interface DbStatus {
   connected: boolean;
@@ -32,8 +69,12 @@ class PostgresManager {
     this.initPool();
   }
 
+  private markDisconnected(): void {
+    markPostgresUnavailable(this);
+  }
+
   private initPool() {
-    const connectionString = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_2SYP1MRvxnBU@ep-wild-violet-axrp274t-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+    const connectionString = process.env.DATABASE_URL;
 
     if (!connectionString) {
       this.isConnected = false;
@@ -50,24 +91,22 @@ class PostgresManager {
     }
 
     try {
+      const ssl = getPostgresSslOptions(process.env.DATABASE_CA_CERT);
       this.pool = new Pool({
-        connectionString,
-        ssl: {
-          rejectUnauthorized: false
-        },
+        connectionString: sanitizePostgresConnectionString(connectionString),
+        ssl,
         max: 10,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
       });
 
       this.pool.on('error', (err) => {
-        console.log('[Neon PostgreSQL] Background pool notice:', err.message);
-        this.isConnected = false;
-        this.connectionError = err.message;
+        console.log('[PostgreSQL] Background connection error.');
+        this.markDisconnected();
       });
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Pool creation notice:', err.message);
-      this.connectionError = err.message;
+    } catch {
+      console.log('[PostgreSQL] Pool configuration failed.');
+      this.connectionError = 'Database configuration failed.';
     }
   }
 
@@ -82,7 +121,7 @@ class PostgresManager {
         this.lastLatencyMs = Date.now() - startTime;
         this.isConnected = true;
         this.connectionError = null;
-        console.log(`[Neon PostgreSQL] Connected successfully to ${this.dbName} on ${this.host} (${this.lastLatencyMs}ms)`);
+        console.log(`[PostgreSQL] Connected successfully (${this.lastLatencyMs}ms).`);
 
         // Initialize schema tables if they don't exist
         await client.query(`
@@ -165,20 +204,21 @@ class PostgresManager {
             name VARCHAR(128) NOT NULL,
             email VARCHAR(256) NOT NULL UNIQUE,
             role VARCHAR(32) DEFAULT 'user',
+            password_hash TEXT,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             downloads_count INT DEFAULT 0,
             tier VARCHAR(32) DEFAULT 'free'
           );
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
         `);
 
         return true;
       } finally {
         client.release();
       }
-    } catch (err: any) {
-      this.isConnected = false;
-      this.connectionError = err.message || 'Connection failed';
-      console.log('[Neon PostgreSQL] Initialization notice (operating in memory mode):', err.message);
+    } catch {
+      this.markDisconnected();
+      console.log('[PostgreSQL] Database initialization failed.');
       return false;
     }
   }
@@ -202,11 +242,11 @@ class PostgresManager {
         this.lastLatencyMs = Date.now() - startTime;
 
         const [jobsCount, dmcaCount, msgCount, blogCount, logsCount] = await Promise.all([
-          client.query('SELECT COUNT(*)::int as count FROM media_jobs').then(r => r.rows[0]?.count || 0).catch(() => 0),
-          client.query('SELECT COUNT(*)::int as count FROM dmca_reports').then(r => r.rows[0]?.count || 0).catch(() => 0),
-          client.query('SELECT COUNT(*)::int as count FROM contact_messages').then(r => r.rows[0]?.count || 0).catch(() => 0),
-          client.query('SELECT COUNT(*)::int as count FROM blog_posts').then(r => r.rows[0]?.count || 0).catch(() => 0),
-          client.query('SELECT COUNT(*)::int as count FROM audit_logs').then(r => r.rows[0]?.count || 0).catch(() => 0),
+          client.query('SELECT COUNT(*)::int as count FROM media_jobs').then(r => r.rows[0]?.count || 0),
+          client.query('SELECT COUNT(*)::int as count FROM dmca_reports').then(r => r.rows[0]?.count || 0),
+          client.query('SELECT COUNT(*)::int as count FROM contact_messages').then(r => r.rows[0]?.count || 0),
+          client.query('SELECT COUNT(*)::int as count FROM blog_posts').then(r => r.rows[0]?.count || 0),
+          client.query('SELECT COUNT(*)::int as count FROM audit_logs').then(r => r.rows[0]?.count || 0),
         ]);
 
         return {
@@ -227,16 +267,57 @@ class PostgresManager {
       } finally {
         client.release();
       }
-    } catch (err: any) {
-      this.isConnected = false;
-      this.connectionError = err.message;
+    } catch {
+      this.markDisconnected();
       return {
         connected: false,
         provider: 'Neon Serverless PostgreSQL',
         database: this.dbName,
         host: this.host,
-        error: err.message,
+        error: 'Database connection failed.',
       };
+    }
+  }
+
+  // --- Media Jobs ---
+  public async getUsers(): Promise<UserAccount[]> {
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
+    try {
+      const res = await this.pool.query('SELECT id, name, email, role, password_hash, created_at, downloads_count, tier FROM users');
+      return res.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        role: r.role === 'admin' ? 'admin' : 'user',
+        passwordHash: r.password_hash || undefined,
+        createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
+        downloadsCount: Number(r.downloads_count) || 0,
+        tier: r.tier === 'pro' ? 'pro' : 'free',
+      }));
+    } catch {
+      this.markDisconnected();
+      throw new Error('Unable to load user accounts from PostgreSQL.');
+    }
+  }
+
+  public async saveUser(user: UserAccount): Promise<void> {
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
+    try {
+      await this.pool.query(
+        `INSERT INTO users (id, name, email, role, password_hash, created_at, downloads_count, tier)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           email = EXCLUDED.email,
+           role = EXCLUDED.role,
+           password_hash = EXCLUDED.password_hash,
+           downloads_count = EXCLUDED.downloads_count,
+           tier = EXCLUDED.tier;`,
+        [user.id, user.name, user.email, user.role, user.passwordHash || null, new Date(user.createdAt), user.downloadsCount, user.tier]
+      );
+    } catch {
+      this.markDisconnected();
+      throw new Error('Unable to save user account to PostgreSQL.');
     }
   }
 
@@ -277,19 +358,20 @@ class PostgresManager {
           JSON.stringify(job),
         ]
       );
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice saving job:', err?.message || err);
+    } catch {
+      this.markDisconnected();
+      console.log('[PostgreSQL] Job persistence failed.');
     }
   }
 
   public async getJobs(): Promise<MediaJob[]> {
-    if (!this.pool || !this.isConnected) return [];
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
     try {
       const res = await this.pool.query('SELECT raw_payload FROM media_jobs ORDER BY created_at DESC LIMIT 100');
       return res.rows.map(r => r.raw_payload as MediaJob);
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice loading jobs:', err?.message || err);
-      return [];
+    } catch {
+      this.markDisconnected();
+      throw new Error('Unable to load jobs from PostgreSQL.');
     }
   }
 
@@ -321,13 +403,14 @@ class PostgresManager {
           new Date(report.updatedAt),
         ]
       );
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice saving DMCA report:', err?.message || err);
+    } catch {
+      this.markDisconnected();
+      console.log('[PostgreSQL] Report persistence failed.');
     }
   }
 
   public async getDmcaReports(): Promise<DmcaReport[]> {
-    if (!this.pool || !this.isConnected) return [];
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
     try {
       const res = await this.pool.query('SELECT * FROM dmca_reports ORDER BY created_at DESC');
       return res.rows.map(r => ({
@@ -346,9 +429,9 @@ class PostgresManager {
         createdAt: r.created_at.toISOString(),
         updatedAt: r.updated_at.toISOString(),
       }));
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice loading DMCA reports:', err?.message || err);
-      return [];
+    } catch {
+      this.markDisconnected();
+      throw new Error('Unable to load reports from PostgreSQL.');
     }
   }
 
@@ -362,14 +445,15 @@ class PostgresManager {
          ON CONFLICT (id) DO NOTHING;`,
         [msg.id, msg.name, msg.email, msg.subject, msg.message, msg.status, new Date(msg.createdAt)]
       );
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice saving contact message:', err?.message || err);
+    } catch {
+      this.markDisconnected();
+      console.log('[PostgreSQL] Contact message persistence failed.');
     }
   }
 
   // --- Blog Posts ---
   public async saveBlogPost(post: BlogPost): Promise<void> {
-    if (!this.pool || !this.isConnected) return;
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
     try {
       await this.pool.query(
         `INSERT INTO blog_posts (
@@ -402,13 +486,14 @@ class PostgresManager {
           post.seoDescription,
         ]
       );
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice saving blog post:', err?.message || err);
+    } catch {
+      this.markDisconnected();
+      throw new Error('Unable to save blog post to PostgreSQL.');
     }
   }
 
   public async getBlogPosts(): Promise<BlogPost[]> {
-    if (!this.pool || !this.isConnected) return [];
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
     try {
       const res = await this.pool.query('SELECT * FROM blog_posts ORDER BY published_at DESC');
       return res.rows.map(r => ({
@@ -426,9 +511,9 @@ class PostgresManager {
         seoTitle: r.seo_title,
         seoDescription: r.seo_description,
       }));
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice loading blog posts:', err?.message || err);
-      return [];
+    } catch {
+      this.markDisconnected();
+      throw new Error('Unable to load blog posts from PostgreSQL.');
     }
   }
 
@@ -442,14 +527,15 @@ class PostgresManager {
          ON CONFLICT (id) DO NOTHING;`,
         [log.id, log.action, log.ip, log.details, new Date(log.timestamp)]
       );
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice saving audit log:', err?.message || err);
+    } catch {
+      this.markDisconnected();
+      console.log('[PostgreSQL] Audit log persistence failed.');
     }
   }
 
   // --- System Settings ---
   public async saveSettings(settings: SystemSettings): Promise<void> {
-    if (!this.pool || !this.isConnected) return;
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
     try {
       await this.pool.query(
         `INSERT INTO system_settings (id, settings_json, updated_at)
@@ -459,22 +545,23 @@ class PostgresManager {
           updated_at = NOW();`,
         [JSON.stringify(settings)]
       );
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice saving settings:', err?.message || err);
+    } catch {
+      this.markDisconnected();
+      throw new Error('Unable to save settings to PostgreSQL.');
     }
   }
 
   public async loadSettings(): Promise<SystemSettings | null> {
-    if (!this.pool || !this.isConnected) return null;
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
     try {
       const res = await this.pool.query("SELECT settings_json FROM system_settings WHERE id = 'global_config'");
       if (res.rows.length > 0) {
         return res.rows[0].settings_json as SystemSettings;
       }
       return null;
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Notice loading settings:', err?.message || err);
-      return null;
+    } catch {
+      this.markDisconnected();
+      throw new Error('Unable to load settings from PostgreSQL.');
     }
   }
 }

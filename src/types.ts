@@ -105,6 +105,8 @@ export interface ClientMediaMetadata {
 
 export interface ActiveJobState {
   id: string;
+  /** Kept in active memory only; never persisted in recent-job history. */
+  jobCapability?: string;
   sourceUrl?: string;
   provider?: string;
   status: 'QUEUED' | 'ANALYZING' | 'PROCESSING' | 'READY' | 'FAILED' | 'EXPIRED' | 'CANCELLED';

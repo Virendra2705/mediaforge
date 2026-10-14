@@ -2,12 +2,14 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
+import { pipeline } from 'node:stream/promises';
 import {
   isHtmlOrChallengeContent,
   inspectMediaSignature,
   fetchAndValidateMediaStream,
 } from './upstreamValidator.js';
 import { ytDlpService } from './ytDlpService.js';
+import { requestSafeHttp } from './outboundHttp.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -45,14 +47,21 @@ export async function ensureYtDlpBinary(): Promise<string> {
   // If missing, corrupted, or non-functional, download the official standalone yt-dlp_linux binary
   try {
     console.log('[FFmpeg] Downloading official standalone yt-dlp_linux release from GitHub...');
-    const res = await fetch('https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux', {
-      redirect: 'follow',
+    const res = await requestSafeHttp('https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux', {
+      maxRedirects: 5,
+      maxResponseBytes: 100 * 1024 * 1024,
+      overallTimeoutMs: 120_000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MediaDownloader/1.0)' },
     });
     
-    if (res.ok) {
-      const buf = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(ytDlpPath, buf);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      try {
+        await pipeline(res.body, fs.createWriteStream(ytDlpPath));
+      } catch (error) {
+        res.abort();
+        try { fs.unlinkSync(ytDlpPath); } catch {}
+        throw error;
+      }
       try {
         fs.chmodSync(ytDlpPath, 0o755);
       } catch {}
@@ -60,7 +69,8 @@ export async function ensureYtDlpBinary(): Promise<string> {
       const { stdout } = await execFileAsync(ytDlpPath, ['--version'], { timeout: 5000 });
       console.log(`[FFmpeg] Standalone yt-dlp binary initialized successfully (version ${stdout.trim()}).`);
     } else {
-      console.log(`[FFmpeg] Failed to download yt-dlp_linux: HTTP ${res.status}`);
+      res.abort();
+      console.log(`[FFmpeg] Failed to download yt-dlp_linux: HTTP ${res.statusCode}`);
     }
   } catch (dlErr: any) {
     console.log('[FFmpeg] Notice downloading yt-dlp_linux:', dlErr.message);

@@ -19,9 +19,7 @@ import { z } from 'zod';
 import {
   validateAndNormalizeUrl,
   validateAndNormalizeUrlAsync,
-  checkRateLimit,
   verifyDownloadToken,
-  verifyStorageSignedToken,
   getStorageSigningSecret,
 } from './server/security.js';
 import {
@@ -31,6 +29,8 @@ import {
   authenticateUser,
   createSessionToken,
   getAuthSecret,
+  changePassword,
+  rejectUnverifiedPasswordRecovery,
 } from './server/auth.js';
 import { logger } from './server/logger.js';
 import { providerRegistry, extractYouTubeVideoId } from './server/providers.js';
@@ -52,8 +52,12 @@ import {
 import {
   inspectMediaSignature,
   isHtmlOrChallengeContent,
-  fetchAndValidateMediaStream,
 } from './server/upstreamValidator.js';
+import { registerMediaEgressRoutes } from './server/mediaEgressRoutes.js';
+import { createBlogPostHandler, registerDatabaseAvailabilityGate, registerDiagnosticAdminGate, registerPublicBlogReadRoutes, registerPublicOperationalRoutes } from './server/operationalSecurity.js';
+import { createAuthenticationRateLimiter, getTrustedClientAddress } from './server/authRateLimit.js';
+import { createAnonymousJobCapability, isContainedJobFilePath } from './server/jobAuthorization.js';
+import { authorizeJobRequest, authorizeSignedJobFile, downloadStreamAuthorizationMiddleware, previewJobAuthorizationMiddleware, registerJobLinkAuthorizationRoutes, registerJobStatusAndCancelRoutes, signedFileAuthorizationMiddleware } from './server/jobAccessRoutes.js';
 import { ytDlpService } from './server/ytDlpService.js';
 import { fetchSocialAllInOne, fetchSocialAllInOneWithDetails } from './server/socialDownload.js';
 import {
@@ -65,16 +69,11 @@ import {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
+  if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+    throw new Error('PORT must be an integer from 1 to 65535.');
+  }
   const httpServer = http.createServer(app);
-
-  // Initialize and synchronize PostgreSQL connection
-  await db.initAsync();
-  // Ping Redis connection
-  await redisManager.ping().catch(() => {});
-  // Validate yt-dlp binary, server permissions, and environment setup
-  const ytDlpHealth = await ytDlpService.validateServerEnvironment();
-  logger.info('yt-dlp environment status:', ytDlpHealth);
 
   // Assert required cryptographic secrets
   try {
@@ -83,11 +82,27 @@ async function startServer() {
     logger.info('Cryptographic session and storage signing secrets verified.');
   } catch (err: any) {
     logger.error('Security secret initialization failed:', err.message);
+    throw err;
   }
+
+  // Initialize and synchronize PostgreSQL connection
+  try {
+    await db.initAsync();
+  } catch {
+    console.error('Database initialization failed. Verify DATABASE_URL, PostgreSQL availability, and DATABASE_CA_CERT if using a custom CA.');
+    throw new Error('Database initialization failed.');
+  }
+  // Ping Redis connection
+  await redisManager.ping().catch(() => {});
+  // Validate yt-dlp binary, server permissions, and environment setup
+  const ytDlpHealth = await ytDlpService.validateServerEnvironment();
+  logger.info('yt-dlp environment status:', ytDlpHealth);
 
   // Standard middleware
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+  // No verified reverse-proxy topology is configured; do not trust forwarded headers.
+  app.set('trust proxy', false);
 
   // Security Headers
   app.use((req, res, next) => {
@@ -99,11 +114,36 @@ async function startServer() {
 
   // Session middleware: populates req.user from verified HMAC/JWT tokens
   app.use(sessionMiddleware);
+  registerDiagnosticAdminGate(app);
+  registerDatabaseAvailabilityGate(app, () => db.isReady &&
+    (db.persistenceMode !== 'postgres' || postgresManager.isConnected));
+
+  const checkAuthLimit = (key: string, maxRequests: number, windowSeconds: number) =>
+    redisManager.checkRateLimit(key, maxRequests, windowSeconds);
+  const loginRateLimit = createAuthenticationRateLimiter({
+    scope: 'login',
+    check: checkAuthLimit,
+    ip: { maxRequests: 30, windowSeconds: 15 * 60 },
+    subject: { maxRequests: 8, windowSeconds: 15 * 60 },
+    getSubject: (req) => typeof req.body?.email === 'string' ? req.body.email : null,
+  });
+  const passwordChangeRateLimit = createAuthenticationRateLimiter({
+    scope: 'password-change',
+    check: checkAuthLimit,
+    ip: { maxRequests: 20, windowSeconds: 60 * 60 },
+    subject: { maxRequests: 8, windowSeconds: 60 * 60 },
+    getSubject: (req) => req.user?.id,
+  });
+  const passwordRecoveryRateLimit = createAuthenticationRateLimiter({
+    scope: 'password-recovery',
+    check: checkAuthLimit,
+    ip: { maxRequests: 10, windowSeconds: 60 * 60 },
+  });
 
   // ==========================================
   // Authentication & Session Routes
   // ==========================================
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', loginRateLimit, async (req, res) => {
     const { email, password } = req.body;
     if (!email || typeof email !== 'string') {
       return res.status(400).json({
@@ -129,7 +169,7 @@ async function startServer() {
       path: '/',
     });
 
-    logger.info(`User ${user.email} (${user.role}) logged in successfully.`);
+    logger.info('User login succeeded.');
     return res.json({
       success: true,
       data: {
@@ -164,47 +204,36 @@ async function startServer() {
     });
   });
 
-  // Health check & Server Diagnostics
-  app.get(['/api/health', '/api/system/health'], async (req, res) => {
-    const healthStatus = await ytDlpService.validateServerEnvironment();
-    const cookiesConfigured = healthStatus.cookies.configured;
-    const { url: supabaseUrl, secretKey: supabaseKey } = getSupabaseConfig();
+  app.post('/api/auth/change-password', requireAuth, passwordChangeRateLimit, async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'Current password and new password are required.' },
+      });
+    }
 
-    const isHealthy = healthStatus.ytDlp.installed && healthStatus.ytDlp.executable;
+    const result = await changePassword(req.user!.id, currentPassword, newPassword);
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'PASSWORD_CHANGE_FAILED', message: result.error || 'Failed to update password.' },
+      });
+    }
 
-    res.status(isHealthy ? 200 : 503).json({
-      status: isHealthy ? 'healthy' : 'error',
-      service: 'VideoFetch Server-Controlled Processing Gateway',
-      timestamp: new Date().toISOString(),
-      uptimeSeconds: Math.floor(process.uptime()),
-      runtime: {
-        node: process.version,
-        platform: process.platform,
-        arch: process.arch,
-      },
-      ytDlp: {
-        installed: healthStatus.ytDlp.installed,
-        executable: healthStatus.ytDlp.executable,
-        version: healthStatus.ytDlp.version,
-        path: healthStatus.ytDlp.path,
-        resolvedPath: healthStatus.ytDlp.resolvedPath,
-      },
-      serverConfig: {
-        cookiesConfigured,
-        storageConfigured: !!(supabaseUrl && supabaseKey),
-        storageBucket: STORAGE_BUCKET,
-        activeProviders: [
-          'YouTube',
-          'TikTok',
-          'Instagram',
-          'Twitter / X',
-          'Vimeo',
-          'SoundCloud',
-          'Direct Media Streams',
-        ],
-      },
+    return res.json({
+      success: true,
+      data: { message: 'Password updated successfully.' },
     });
   });
+
+  app.post('/api/auth/recover', passwordRecoveryRateLimit, (req, res) => {
+    return rejectUnverifiedPasswordRecovery(res);
+  });
+
+  // Minimal public liveness/status responses; dependency and runtime details stay private.
+  registerPublicOperationalRoutes(app, () => db.isReady &&
+    (db.persistenceMode !== 'postgres' || postgresManager.isConnected));
 
   // In-memory cache for analyzed metadata
   const analyzedMetadataStore = new Map<string, any>();
@@ -217,7 +246,7 @@ async function startServer() {
   });
 
   app.post('/api/analyze', async (req, res) => {
-    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || '127.0.0.1';
+    const clientIp = getTrustedClientAddress(req);
 
     // Check Distributed Upstash Redis Rate Limiting (fallback to local memory)
     const redisLimit = await redisManager.checkRateLimit(clientIp, db.settings.anonymousRateLimitPerHour, 3600);
@@ -519,62 +548,8 @@ async function startServer() {
     }
   });
 
-  // ==========================================
-  // 1.2 GET /api/social-download/proxy, /api/download/proxy, /api/easydown/proxy
-  // ==========================================
-  app.get(['/api/social-download/proxy', '/api/download/proxy', '/api/easydown/proxy'], async (req, res) => {
-    const targetUrl = req.query.url as string;
-    const filename = (req.query.filename as string) || 'media.mp4';
-    const isDownload = req.query.dl === '1' || req.query.download === '1' || req.query.download === 'true';
-
-    if (!targetUrl) {
-      return res.status(400).send('Missing target media URL.');
-    }
-
-    try {
-      const parsed = new URL(targetUrl);
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        return res.status(400).send('Invalid URL protocol.');
-      }
-
-      const upstreamRes = await fetch(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        },
-      });
-
-      if (!upstreamRes.ok || !upstreamRes.body) {
-        return res.status(upstreamRes.status || 502).send('Failed to fetch stream from origin provider.');
-      }
-
-      const contentType = upstreamRes.headers.get('content-type') || 'video/mp4';
-      const contentLength = upstreamRes.headers.get('content-length');
-
-      res.setHeader('Content-Type', contentType);
-      if (contentLength) res.setHeader('Content-Length', contentLength);
-      if (isDownload) {
-        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-      } else {
-        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
-      }
-
-      const reader = upstreamRes.body.getReader();
-      const pump = async () => {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) res.write(Buffer.from(value));
-        }
-        res.end();
-      };
-      await pump();
-    } catch (err: any) {
-      console.warn('[Social Proxy Stream Notice]:', err.message);
-      if (!res.headersSent) {
-        res.status(500).send('Error streaming media file.');
-      }
-    }
-  });
+  // Public outbound endpoints use a DNS-pinned HTTP/HTTPS transport.
+  registerMediaEgressRoutes(app);
 
   // ==========================================
   // 1.3 POST /api/easydown/parse & GET /api/easydown/platforms
@@ -672,34 +647,9 @@ async function startServer() {
         });
       }
 
-      // Step 4: Authentication and Authorization checks (Verified Session Layer)
-      const requestingUserId = req.user?.id || null;
-      const userRole = req.user?.role || 'guest';
-
-      // For non-anonymous jobs, require verified identity and owner/admin check
-      if (job.userId && job.userId !== 'usr_anonymous') {
-        if (!requestingUserId) {
-          return res.status(401).json({
-            success: false,
-            data: null,
-            error: {
-              code: 'UNAUTHORIZED',
-              message: 'Authentication required to access this download.',
-            },
-          });
-        }
-
-        if (job.userId !== requestingUserId && userRole !== 'admin') {
-          return res.status(403).json({
-            success: false,
-            data: null,
-            error: {
-              code: 'FORBIDDEN',
-              message: 'You do not have permission to access or download this media file.',
-            },
-          });
-        }
-      }
+      // Authenticated jobs use session ownership; anonymous jobs require the
+      // per-job capability returned only by the create response.
+      if (!authorizeJobRequest(req, res, job)) return;
 
       // Step 3: Check that the requested file exists and job is ready
       if (job.status === 'FAILED') {
@@ -730,7 +680,7 @@ async function startServer() {
       const bucketName = job.storageBucket || STORAGE_BUCKET;
       const mimeType = job.mimeType || getMimeTypeForFormat(job.selectedFormat);
 
-      if (!storagePath.startsWith('temp/')) {
+      if (!isContainedJobFilePath(TEMP_MEDIA_DIR, job.id, storagePath, storagePath)) {
         return res.status(403).json({
           success: false,
           data: null,
@@ -744,6 +694,15 @@ async function startServer() {
       // Step 7 & 8: Use server-only Supabase client to call createSignedUrl (300 seconds / 5 minutes)
       const signedResult = await supabaseStorage.createSignedDownloadUrl(storagePath, 300);
 
+      // Storage signing is asynchronous. Re-read state and authorization before
+      // releasing the bearer URL in case the job expired or was revoked meanwhile.
+      const currentJob = jobQueue.getJob(targetJobId) || db.jobs.get(targetJobId);
+      const currentExpiry = currentJob ? Date.parse(currentJob.expiresAt) : NaN;
+      if (!currentJob || currentJob.status !== 'READY' || currentJob.storagePath !== storagePath || !Number.isFinite(currentExpiry) || Date.now() >= currentExpiry || !authorizeJobRequest(req, res, currentJob)) {
+        if (!res.headersSent) return res.status(410).json({ success: false, data: null, error: { code: 'JOB_EXPIRED', message: 'This download is no longer available.' } });
+        return;
+      }
+
       if (!signedResult.success || !signedResult.signedUrl) {
         return res.status(502).json({
           success: false,
@@ -754,6 +713,8 @@ async function startServer() {
           },
         });
       }
+
+      res.setHeader('Cache-Control', 'private, no-store');
 
       db.addAuditLog(
         'FILE_DOWNLOAD_SIGNED_URL_ISSUED',
@@ -769,8 +730,6 @@ async function startServer() {
       console.log('[Signed Download URL Diagnostics]', {
         jobId: job.id,
         sourceUrlHostname: sourceHostname,
-        sourceIdentifier: job.sourceUrl || job.id,
-        storageObjectPath: storagePath,
         videoFileSizeBytes: job.fileSizeBytes || 0,
         videoMimeType: mimeType,
         signedUrlCreated: !!signedResult.signedUrl,
@@ -800,7 +759,7 @@ async function startServer() {
         error: null,
       });
     } catch (err: any) {
-      console.warn('[Download Controller Notice]:', err?.message || err);
+      console.warn('[Download Controller Notice]: Signed link request failed.');
       return res.status(500).json({
         success: false,
         data: null,
@@ -812,21 +771,7 @@ async function startServer() {
     }
   }
 
-  // GET /api/download (Request signed URL with ?jobId=...)
-  app.get('/api/download', async (req, res) => {
-    const jobId = (req.query.jobId as string) || (req.query.id as string);
-    if (!jobId) {
-      return res.status(400).json({
-        success: false,
-        data: null,
-        error: {
-          code: 'INVALID_PAYLOAD',
-          message: 'Parameter "jobId" is required to request a download link.',
-        },
-      });
-    }
-    return generateJobSignedDownloadUrl(req, res, jobId);
-  });
+  registerJobLinkAuthorizationRoutes(app, (id) => jobQueue.getJob(id) || db.jobs.get(id), generateJobSignedDownloadUrl);
 
   // POST /api/jobs (Create job with { url: "SOURCE_URL" } or full payload)
   app.post('/api/jobs', async (req, res) => {
@@ -855,6 +800,8 @@ async function startServer() {
     }
 
     const requestingUserId = req.user?.id || 'usr_anonymous';
+    const jobId = `job_${crypto.randomUUID()}`;
+    const anonymousCapability = requestingUserId === 'usr_anonymous' ? createAnonymousJobCapability(jobId) : undefined;
     const requestedFormat = req.body?.format || req.body?.selectedFormat || 'mp4';
     const requestedQuality = req.body?.quality || req.body?.selectedQuality || '1080p';
     const formatType = req.body?.formatType || (requestedFormat === 'mp3' || requestedFormat === 'wav' || requestedFormat === 'm4a' ? 'audio' : 'video');
@@ -899,7 +846,10 @@ async function startServer() {
     }
 
     const job = jobQueue.createJob({
+      id: jobId,
       userId: requestingUserId,
+      anonymousCapabilityHash: anonymousCapability?.hash,
+      anonymousCapabilityExpiresAt: anonymousCapability?.expiresAt,
       sourceUrl: urlValidation.normalizedUrl,
       provider,
       mediaTitle: title || 'Media Asset',
@@ -910,6 +860,7 @@ async function startServer() {
       trimParams: req.body?.trimParams,
     });
 
+    if (anonymousCapability) res.setHeader('Cache-Control', 'no-store');
     return res.json({
       success: true,
       data: {
@@ -923,6 +874,7 @@ async function startServer() {
         selectedFormat: job.selectedFormat,
         selectedQuality: job.selectedQuality,
         storagePath: job.storagePath,
+        jobCapability: anonymousCapability?.capability,
       },
       error: null,
     });
@@ -930,12 +882,7 @@ async function startServer() {
 
   // POST /api/download (Unified endpoint: EasyDown parse / signed URL / conversion job)
   app.post('/api/download', async (req, res) => {
-    // 1. If request contains jobId, it's a request to get the download signed URL
-    if (req.body?.jobId) {
-      return generateJobSignedDownloadUrl(req, res, req.body.jobId);
-    }
-
-    // 2. If request contains URL only (or sourceUrl without format), route through EasyDown API
+    // If request contains URL only (or sourceUrl without format), route through EasyDown API
     const simpleUrl = req.body?.url || (req.body?.sourceUrl && !req.body?.selectedFormat ? req.body.sourceUrl : null);
     if (simpleUrl && typeof simpleUrl === 'string' && !req.body?.selectedFormat) {
       const sanitize = validateAndSanitizeUrl(simpleUrl);
@@ -981,9 +928,14 @@ async function startServer() {
 
     const data = parseResult.data;
     const requestingUserId = req.user?.id || 'usr_anonymous';
+    const jobId = `job_${crypto.randomUUID()}`;
+    const anonymousCapability = requestingUserId === 'usr_anonymous' ? createAnonymousJobCapability(jobId) : undefined;
 
     const job = jobQueue.createJob({
+      id: jobId,
       userId: requestingUserId,
+      anonymousCapabilityHash: anonymousCapability?.hash,
+      anonymousCapabilityExpiresAt: anonymousCapability?.expiresAt,
       sourceUrl: data.sourceUrl,
       provider: data.provider,
       mediaTitle: data.mediaTitle,
@@ -997,6 +949,7 @@ async function startServer() {
       trimParams: data.trimParams,
     });
 
+    if (anonymousCapability) res.setHeader('Cache-Control', 'no-store');
     return res.json({
       success: true,
       data: {
@@ -1006,20 +959,16 @@ async function startServer() {
         stepMessage: job.stepMessage,
         storageBucket: job.storageBucket,
         storagePath: job.storagePath,
+        jobCapability: anonymousCapability?.capability,
       },
       error: null,
     });
   });
 
-  // GET /api/jobs/:id/download or /api/download/:id (Helper direct routes)
-  app.get('/api/jobs/:id/download', (req, res) => {
-    return generateJobSignedDownloadUrl(req, res, req.params.id);
-  });
-
   // ==========================================
   // 5. GET /api/download/file/* (Direct Binary Media Streaming)
   // ==========================================
-  app.get(['/api/download/file/*', '/api/download/file'], async (req, res) => {
+  app.get(['/api/download/file/*', '/api/download/file'], signedFileAuthorizationMiddleware((id) => jobQueue.getJob(id) || db.jobs.get(id)), async (req, res) => {
     try {
       let rawPath = req.params[0] || (req.params as any)['*'] || '';
       try {
@@ -1048,105 +997,25 @@ async function startServer() {
         });
       }
 
-      // Token Validation
-      const queryToken = (req.query.token as string) || '';
-      const queryExpiresStr = (req.query.expires as string) || '';
-
-      if (queryToken || queryExpiresStr) {
-        if (!queryToken || !queryExpiresStr) {
-          return res.status(401).json({
-            success: false,
-            error: { code: 'UNAUTHORIZED', message: 'Download signature token or expiration timestamp is missing.' },
-          });
-        }
-
-        const queryExpires = parseInt(queryExpiresStr, 10);
-        if (isNaN(queryExpires) || queryExpires <= 0) {
-          return res.status(400).json({
-            success: false,
-            error: { code: 'INVALID_TIMESTAMP', message: 'Invalid expiration timestamp format.' },
-          });
-        }
-
-        const now = Math.floor(Date.now() / 1000);
-        if (now > queryExpires) {
-          return res.status(410).json({
-            success: false,
-            error: { code: 'TOKEN_EXPIRED', message: 'Download authorization token has expired (5-minute window).' },
-          });
-        }
-
-        // Validate token buffer format and length (64 hex characters for SHA-256)
-        if (queryToken.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(queryToken)) {
-          return res.status(403).json({
-            success: false,
-            error: { code: 'FORBIDDEN', message: 'Malformed or invalid download authorization token.' },
-          });
-        }
-
-        const secret = getStorageSigningSecret();
-        const sig1 = crypto.createHmac('sha256', secret).update(`${storagePath}:${queryExpires}`).digest('hex');
-        const sig2 = crypto.createHmac('sha256', secret).update(`${pathWithoutTemp}:${queryExpires}`).digest('hex');
-
-        const tokenBuf = Buffer.from(queryToken, 'hex');
-        const buf1 = Buffer.from(sig1, 'hex');
-        const buf2 = Buffer.from(sig2, 'hex');
-
-        const matches1 = tokenBuf.length === buf1.length && crypto.timingSafeEqual(tokenBuf, buf1);
-        const matches2 = tokenBuf.length === buf2.length && crypto.timingSafeEqual(tokenBuf, buf2);
-
-        if (!matches1 && !matches2) {
-          return res.status(403).json({
-            success: false,
-            error: { code: 'FORBIDDEN', message: 'Invalid download authorization signature.' },
-          });
-        }
-      }
-
-      // Retrieve and verify job
-      const job = jobQueue.getJob(jobId) || db.jobs.get(jobId);
-      if (job && job.expiresAt && new Date(job.expiresAt).getTime() < Date.now()) {
-        return res.status(410).json({
-          success: false,
-          error: { code: 'JOB_EXPIRED', message: 'Download authorization for this job has expired.' },
-        });
-      }
-
-      // Verify the requested path belongs to this job if job.storagePath is recorded
-      if (job?.storagePath) {
-        const jobNormalized = job.storagePath.replace(/^\/+/, '').replace(/^temp\//, '');
-        const reqNormalized = pathWithoutTemp;
-        const jobFilename = path.basename(jobNormalized);
-        const reqFilename = path.basename(reqNormalized);
-
-        if (jobNormalized !== reqNormalized && jobFilename !== reqFilename && !reqNormalized.startsWith(jobId)) {
-          return res.status(403).json({
-            success: false,
-            error: { code: 'PATH_MISMATCH', message: 'Requested download path does not match job storage record.' },
-          });
-        }
-      }
+      // The signature must match this exact path and expiry and the job record.
+      const job = res.locals.authorizedJob;
+      if (!job) return;
 
       // Candidate local paths for resolving the file
-      const candidatePaths: string[] = [
-        path.join(TEMP_MEDIA_DIR, jobId, filename),
-        path.join(TEMP_MEDIA_DIR, pathWithoutTemp),
-        path.join(TEMP_MEDIA_DIR, jobId, path.basename(normalizedPath)),
-      ];
-      if (job?.storagePath) {
-        candidatePaths.unshift(path.join(TEMP_MEDIA_DIR, job.storagePath.replace(/^temp\//, '')));
-      }
+      const candidatePaths: string[] = [path.resolve(TEMP_MEDIA_DIR, jobId, filename)];
 
       let resolvedFilePath: string | null = null;
       let localFileExists = false;
       let storageFileRetrieved = false;
 
       for (const p of candidatePaths) {
-        if (p && fs.existsSync(p)) {
+        if (p && p.startsWith(`${path.resolve(TEMP_MEDIA_DIR)}${path.sep}`) && fs.existsSync(p)) {
           try {
+            const realPath = fs.realpathSync(p);
+            if (!realPath.startsWith(`${path.resolve(TEMP_MEDIA_DIR, jobId)}${path.sep}`)) continue;
             const s = fs.statSync(p);
             if (s.size > 0) {
-              resolvedFilePath = p;
+              resolvedFilePath = realPath;
               localFileExists = true;
               break;
             }
@@ -1163,12 +1032,19 @@ async function startServer() {
           if (!fs.existsSync(targetDir)) {
             fs.mkdirSync(targetDir, { recursive: true });
           }
+          const realTargetDir = fs.realpathSync(targetDir);
+          if (!realTargetDir.startsWith(`${path.resolve(TEMP_MEDIA_DIR)}${path.sep}`)) {
+            return res.status(403).json({ success: false, error: { code: 'INVALID_PATH', message: 'Invalid media storage path.' } });
+          }
           const restoredPath = path.join(targetDir, path.basename(storagePath));
           fs.writeFileSync(restoredPath, remoteBuffer);
           resolvedFilePath = restoredPath;
           storageFileRetrieved = true;
         }
       }
+
+      const currentFileJob = authorizeSignedJobFile(req, res, jobId, storagePath, (id) => jobQueue.getJob(id) || db.jobs.get(id));
+      if (!currentFileJob) return;
 
       // Missing file: return 404 NOT FOUND (No synthetic fallback generation)
       if (!resolvedFilePath || !fs.existsSync(resolvedFilePath)) {
@@ -1293,23 +1169,20 @@ async function startServer() {
   // ==========================================
   // GET /api/download/stream/:token (Stream file by token)
   // ==========================================
-  app.get('/api/download/stream/:token', async (req, res) => {
-    const payload = verifyDownloadToken(req.params.token);
-    if (!payload) {
-      return res.status(410).json({
-        success: false,
-        error: {
-          code: 'TOKEN_EXPIRED',
-          message: 'Download token has expired or is invalid. Please request a new download.',
-        },
-      });
-    }
+  app.get('/api/download/stream/:token', downloadStreamAuthorizationMiddleware((id) => jobQueue.getJob(id) || db.jobs.get(id)), async (req, res) => {
+    const tokenJob = res.locals.authorizedJob;
+    if (!tokenJob) return;
+    const payload = verifyDownloadToken(req.params.token)!;
 
     const cleanFilename = sanitizeMediaFilename(payload.title, payload.quality, payload.format);
     const mimeType = payload.mimeType || getMimeTypeForFormat(payload.format);
 
     try {
-      let localFilePath = path.join(TEMP_MEDIA_DIR, payload.jobId, cleanFilename);
+      let localFilePath = path.resolve(TEMP_MEDIA_DIR, payload.jobId, cleanFilename);
+      const requestedStoragePath = `temp/${payload.jobId}/${cleanFilename}`;
+      if (!isContainedJobFilePath(TEMP_MEDIA_DIR, payload.jobId, tokenJob.storagePath || '', requestedStoragePath) || !localFilePath.startsWith(`${path.resolve(TEMP_MEDIA_DIR, payload.jobId)}${path.sep}`)) {
+        return res.status(403).json({ success: false, error: { code: 'INVALID_PATH', message: 'Invalid media path.' } });
+      }
       if (!fs.existsSync(localFilePath)) {
         const storagePath = `temp/${payload.jobId}/${cleanFilename}`;
         const remoteBuffer = await supabaseStorage.downloadMediaFileBuffer(storagePath);
@@ -1318,19 +1191,31 @@ async function startServer() {
           if (!fs.existsSync(targetDir)) {
             fs.mkdirSync(targetDir, { recursive: true });
           }
+          const realTargetDir = fs.realpathSync(targetDir);
+          if (!realTargetDir.startsWith(`${fs.realpathSync(TEMP_MEDIA_DIR)}${path.sep}`)) {
+            return res.status(403).json({ success: false, error: { code: 'INVALID_PATH', message: 'Invalid media storage path.' } });
+          }
           fs.writeFileSync(localFilePath, remoteBuffer);
         }
       }
 
-      if (!fs.existsSync(localFilePath)) {
-        return res.status(404).json({
-          success: false,
-          error: {
-            code: 'FILE_NOT_FOUND',
-            message: 'The requested media artifact does not exist or has expired.',
-          },
-        });
+      const currentTokenJob = jobQueue.getJob(payload.jobId) || db.jobs.get(payload.jobId);
+      const currentTokenExpiry = currentTokenJob ? Date.parse(currentTokenJob.expiresAt) : NaN;
+      if (!currentTokenJob || currentTokenJob.status !== 'READY' || currentTokenJob.storagePath !== requestedStoragePath || !Number.isFinite(currentTokenExpiry) || Date.now() >= currentTokenExpiry || !authorizeJobRequest(req, res, currentTokenJob)) {
+        if (!res.headersSent) return res.status(410).json({ success: false, error: { code: 'JOB_EXPIRED', message: 'This download is no longer available.' } });
+        return;
       }
+
+      if (!fs.existsSync(localFilePath)) {
+        return res.status(404).json({ success: false, error: { code: 'FILE_NOT_FOUND', message: 'The requested media artifact does not exist or has expired.' } });
+      }
+      const realMediaRoot = fs.realpathSync(TEMP_MEDIA_DIR);
+      const realJobDir = fs.realpathSync(path.dirname(localFilePath));
+      const realLocalFilePath = fs.realpathSync(localFilePath);
+      if (!realJobDir.startsWith(`${realMediaRoot}${path.sep}`) || !realLocalFilePath.startsWith(`${realJobDir}${path.sep}`)) {
+        return res.status(403).json({ success: false, error: { code: 'INVALID_PATH', message: 'Invalid media storage path.' } });
+      }
+      localFilePath = realLocalFilePath;
 
       const stat = fs.statSync(localFilePath);
       if (stat.size === 0) {
@@ -1362,65 +1247,13 @@ async function startServer() {
     }
   });
 
-  app.get('/api/download/:jobId', (req, res, next) => {
-    if (req.params.jobId === 'file' || req.params.jobId === 'stream') {
-      return next();
-    }
-    return generateJobSignedDownloadUrl(req, res, req.params.jobId);
-  });
-
-  // ==========================================
-  // 3. GET /api/jobs/:id (Poll job status)
-  // ==========================================
-  app.get('/api/jobs/:id', (req, res) => {
-    const job = jobQueue.getJob(req.params.id);
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        data: null,
-        error: {
-          code: 'JOB_NOT_FOUND',
-          message: 'The requested processing job does not exist or has expired.',
-        },
-      });
-    }
-
-    // Ensure failed jobs never output undefined error messages
-    if (job.status === 'FAILED') {
-      if (!job.errorMessage || job.errorMessage === 'undefined' || job.errorMessage.trim() === '') {
-        job.errorMessage =
-          job.errorCode === 'UPSTREAM_BOT_VERIFICATION_REQUIRED'
-            ? 'Unable to fetch this video right now. The video service or source platform requires additional verification. Please try another supported URL.'
-            : 'Media processing failed during extraction.';
-      }
-      if (!job.stepMessage || job.stepMessage === 'undefined' || job.stepMessage.trim() === '') {
-        job.stepMessage = job.errorMessage;
-      }
-    }
-
-    return res.json({
-      success: true,
-      data: job,
-      error: null,
-    });
-  });
-
-  // ==========================================
-  // 4. POST /api/jobs/:id/cancel
-  // ==========================================
-  app.post('/api/jobs/:id/cancel', (req, res) => {
-    const success = jobQueue.cancelJob(req.params.id);
-    return res.json({
-      success,
-      data: { cancelled: success },
-      error: success ? null : { code: 'CANNOT_CANCEL', message: 'Job already completed or not found.' },
-    });
-  });
+  // Job status and cancellation share the production-tested owner/capability gate.
+  registerJobStatusAndCancelRoutes(app, { getJob: (id) => jobQueue.getJob(id), cancelJob: (id) => jobQueue.cancelJob(id) });
 
   // ==========================================
   // GET /api/preview/:id & HEAD /api/preview/:id (Playable Video Stream with HTTP Range Support)
   // ==========================================
-  app.all(['/api/preview/:id', '/api/preview'], async (req, res) => {
+  app.all(['/api/preview/:id', '/api/preview'], previewJobAuthorizationMiddleware((id) => jobQueue.getJob(id) || db.jobs.get(id)), async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       return res.status(405).json({
         success: false,
@@ -1433,7 +1266,7 @@ async function startServer() {
       const cleanId = String(rawId).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 80) || 'preview_stream';
 
       const cachedMeta = analyzedMetadataStore.get(cleanId) || analyzedMetadataStore.get(rawId);
-      const existingJob = jobQueue.getJob(cleanId) || db.jobs.get(cleanId) || db.jobs.get(rawId);
+      const existingJob = res.locals.previewJob;
 
       // Never generate an artificial 5-second video preview for YouTube links!
       if (
@@ -1466,9 +1299,17 @@ async function startServer() {
 
       // If job already has a finished media file, reuse it directly
       if (existingJob?.storagePath) {
+        if (!isContainedJobFilePath(TEMP_MEDIA_DIR, existingJob.id, existingJob.storagePath, existingJob.storagePath)) {
+          return res.status(403).json({ success: false, error: { code: 'INVALID_PATH', message: 'Invalid media storage path.' } });
+        }
         const jobLocalPath = path.join(TEMP_MEDIA_DIR, existingJob.storagePath.replace(/^temp\//, ''));
         if (fs.existsSync(jobLocalPath)) {
-          previewFilePath = jobLocalPath;
+          const realRoot = fs.realpathSync(TEMP_MEDIA_DIR);
+          const realJobFile = fs.realpathSync(jobLocalPath);
+          if (!realJobFile.startsWith(`${realRoot}${path.sep}`)) {
+            return res.status(403).json({ success: false, error: { code: 'INVALID_PATH', message: 'Invalid media storage path.' } });
+          }
+          previewFilePath = realJobFile;
         }
       }
 
@@ -1513,6 +1354,11 @@ async function startServer() {
         });
       }
 
+      if (existingJob) {
+        const latestJob = jobQueue.getJob(existingJob.id) || db.jobs.get(existingJob.id);
+        if (!latestJob || !authorizeJobRequest(req, res, latestJob)) return;
+      }
+
       const stat = fs.statSync(previewFilePath);
       const range = req.headers.range;
 
@@ -1534,7 +1380,7 @@ async function startServer() {
       res.setHeader('Content-Type', 'video/mp4');
       res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Content-Disposition', 'inline; filename="preview.mp4"');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Cache-Control', existingJob ? 'private, no-store' : 'public, max-age=3600');
 
       if (range) {
         const rangeParts = range.replace(/bytes=/, '').split('-');
@@ -1637,7 +1483,14 @@ async function startServer() {
       });
     }
 
+    const requestingUserId = req.user?.id || 'usr_anonymous';
+    const jobId = `job_${crypto.randomUUID()}`;
+    const anonymousCapability = requestingUserId === 'usr_anonymous' ? createAnonymousJobCapability(jobId) : undefined;
     const job = jobQueue.createJob({
+      id: jobId,
+      userId: requestingUserId,
+      anonymousCapabilityHash: anonymousCapability?.hash,
+      anonymousCapabilityExpiresAt: anonymousCapability?.expiresAt,
       sourceUrl: sourceUrl || 'https://example.com/media.mp4',
       provider: 'VideoFetch Trimmer',
       mediaTitle: `${title || 'Clipped Media'} [${Math.round(startTime)}s-${Math.round(endTime)}s]`,
@@ -1648,9 +1501,10 @@ async function startServer() {
       trimParams: { startTime, endTime },
     });
 
+    if (anonymousCapability) res.setHeader('Cache-Control', 'no-store');
     return res.json({
       success: true,
-      data: { jobId: job.id, status: job.status, durationSeconds: duration },
+      data: { jobId: job.id, status: job.status, durationSeconds: duration, jobCapability: anonymousCapability?.capability },
       error: null,
     });
   });
@@ -1658,45 +1512,13 @@ async function startServer() {
   // ==========================================
   // 8. Blog Endpoints
   // ==========================================
-  app.get('/api/blog', (req, res) => {
-    const posts = Array.from(db.blogPosts.values());
-    res.json({ success: true, data: posts });
-  });
+  registerPublicBlogReadRoutes(app, db.blogPosts);
 
-  app.get('/api/blog/:slug', (req, res) => {
-    const post = db.blogPosts.get(req.params.slug);
-    if (!post) {
-      return res.status(404).json({ success: false, error: 'Article not found.' });
-    }
-    res.json({ success: true, data: post });
-  });
-
-  app.post('/api/blog', (req, res) => {
-    const { title, excerpt, content, category, author, tags } = req.body;
-    if (!title || !content) {
-      return res.status(400).json({ success: false, error: 'Title and content are required.' });
-    }
-    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    const newPost = {
-      id: `blog_${Date.now()}`,
-      slug,
-      title,
-      excerpt: excerpt || title,
-      content,
-      category: category || 'Technology',
-      author: author || 'VideoFetch Editorial',
-      publishedAt: new Date().toISOString(),
-      readTime: `${Math.max(1, Math.ceil(content.split(' ').length / 200))} min read`,
-      tags: tags || ['Media', 'Technology'],
-      featuredImage: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80',
-      seoTitle: title,
-      seoDescription: excerpt || title,
-    };
-    db.blogPosts.set(slug, newPost);
-    postgresManager.saveBlogPost(newPost).catch(() => {});
-    db.addAuditLog('BLOG_CREATED', req.ip || '127.0.0.1', `Created article: ${title}`);
-    res.json({ success: true, data: newPost });
-  });
+  app.post('/api/blog', requireAdmin, createBlogPostHandler({
+    posts: db.blogPosts,
+    save: (post) => postgresManager.saveBlogPost(post),
+    audit: (slug, ip) => db.addAuditLog('BLOG_CREATED', ip, `Created article: ${slug}`),
+  }));
 
   // ==========================================
   // 9. DMCA / Abuse Report Endpoint
@@ -1777,32 +1599,6 @@ async function startServer() {
   // ==========================================
   // 11. System Status & Metrics
   // ==========================================
-  app.get('/api/status', async (req, res) => {
-    const allJobs = Array.from(db.jobs.values());
-    const activeJobs = allJobs.filter(j => j.status === 'PROCESSING' || j.status === 'QUEUED' || j.status === 'ANALYZING').length;
-    const successfulJobs = allJobs.filter(j => j.status === 'READY').length;
-    const failedJobs = allJobs.filter(j => j.status === 'FAILED').length;
-    const dbStatus = await postgresManager.getStatus();
-    const redisStatus = await redisManager.getStatus();
-
-    res.json({
-      success: true,
-      data: {
-        system: 'Operational',
-        uptimeSeconds: Math.floor(process.uptime()),
-        activeJobs,
-        totalJobsProcessed: allJobs.length,
-        successfulJobs,
-        failedJobs,
-        workerLatencyMs: dbStatus.latencyMs || 42,
-        queueHealth: 'Optimal',
-        providers: db.settings.providers,
-        database: dbStatus,
-        cache: redisStatus,
-      },
-    });
-  });
-
   // ==========================================
   // 12. Admin Management Endpoints (Secured behind requireAdmin)
   // ==========================================
@@ -1857,7 +1653,7 @@ async function startServer() {
   });
 
   app.get('/api/admin/users', requireAdmin, (req, res) => {
-    const users = Array.from(db.users.values());
+    const users = Array.from(db.users.values(), ({ passwordHash: _passwordHash, ...user }) => user);
     res.json({ success: true, data: users });
   });
 
@@ -1903,16 +1699,11 @@ async function startServer() {
   // ==========================================
   // Server-Controlled Provider & Storage Configuration
   // ==========================================
-  app.get('/api/providers/status', (req, res) => {
-    const envCookies = (process.env.YTDLP_COOKIES || process.env.YOUTUBE_COOKIES || '').trim();
-    const localCookiesFile = path.resolve(process.cwd(), 'cookies.txt');
-    const isConfigured = (fs.existsSync(localCookiesFile) && fs.statSync(localCookiesFile).size > 10) || envCookies.length > 10;
-
+  app.get('/api/providers/status', (_req, res) => {
     return res.json({
       success: true,
       data: {
         serverManaged: true,
-        authConfigured: isConfigured,
         supportedClients: ['android', 'web', 'tv', 'ios', 'mweb'],
         message: 'All provider configurations and authentications are server-managed.',
       },
@@ -1926,10 +1717,6 @@ async function startServer() {
     const { url, secretKey, bucket } = getSupabaseConfig();
     const isUrlSet = !!url;
     const isSecretKeySet = !!secretKey;
-    const secretKeyLength = secretKey ? secretKey.length : 0;
-    
-    // Masked format check (e.g. valid length and characters without revealing key)
-    const secretKeyValidFormat = isSecretKeySet && secretKey.length >= 20;
 
     // Test connectivity
     const connectivity = await supabaseStorage.testConnectivity();
@@ -1940,13 +1727,10 @@ async function startServer() {
       environment: {
         SUPABASE_URL: {
           available: isUrlSet,
-          value: url || null,
         },
         SUPABASE_SECRET_KEY: {
           available: isSecretKeySet,
           loaded: isSecretKeySet,
-          length: secretKeyLength,
-          validFormat: secretKeyValidFormat,
           // Never expose the actual secret key value
         },
         SUPABASE_BUCKET: {
@@ -1960,7 +1744,7 @@ async function startServer() {
         reachable: connectivity.reachable,
         bucketExists: connectivity.bucketExists,
         isPrivate: connectivity.isPrivate,
-        error: connectivity.error || null,
+        error: connectivity.error ? 'Storage connectivity check failed.' : null,
       },
     };
 
@@ -1969,17 +1753,15 @@ async function startServer() {
     console.log('[Supabase Diagnostic Verification]');
     console.log(`Timestamp:            ${diagnosticResult.timestamp}`);
     console.log(`Status:               ${diagnosticResult.status.toUpperCase()}`);
-    console.log(`URL Configured:       ${isUrlSet ? `YES (${url})` : 'NO'}`);
-    console.log(`Secret Key Loaded:    ${isSecretKeySet ? `YES (${secretKeyLength} chars, valid format: ${secretKeyValidFormat})` : 'NO'}`);
+    console.log(`URL Configured:       ${isUrlSet ? 'YES' : 'NO'}`);
+    console.log(`Secret Key Loaded:    ${isSecretKeySet ? 'YES' : 'NO'}`);
     console.log(`Secret Key Exposed:   NO (Safe Diagnostic)`);
     console.log(`Target Bucket:        ${bucket}`);
     console.log(`Storage Client Init:  ${supabaseStorage.isConfigured ? 'YES' : 'NO (Using Local Fallback)'}`);
     console.log(`Remote Reachable:     ${connectivity.reachable ? 'YES' : 'NO'}`);
     console.log(`Bucket Exists:        ${connectivity.bucketExists ? 'YES' : 'NO'}`);
     console.log(`Bucket Privacy:       ${connectivity.isPrivate ? 'STRICTLY PRIVATE' : 'PUBLIC'}`);
-    if (connectivity.error) {
-      console.log(`Notice/Error:         ${connectivity.error}`);
-    }
+    if (connectivity.error) console.log('Notice/Error:         Storage connectivity check failed.');
     console.log('========================================\n');
 
     return res.json({
@@ -2017,7 +1799,7 @@ async function startServer() {
         testNumber: 1,
         name: 'Job Creation',
         passed: !!testJob && testJob.id.startsWith('job_'),
-        details: `Created job ${testJob.id} with bucket "${testJob.storageBucket}" and path "${testJob.storagePath}".`,
+        details: 'Created an isolated diagnostic job.',
         httpStatus: 200,
       });
 
@@ -2037,7 +1819,7 @@ async function startServer() {
         testNumber: 2,
         name: 'Successful Download Signed URL Generation',
         passed: signedRes.success && !!signedRes.signedUrl,
-        details: signedRes.signedUrl ? `Successfully generated 5-minute signed URL: ${signedRes.signedUrl.substring(0, 45)}...` : 'Failed to generate signed URL.',
+        details: signedRes.signedUrl ? 'Generated a short-lived signed URL.' : 'Signed URL generation failed.',
         httpStatus: signedRes.success ? 200 : 502,
       });
 
@@ -2129,7 +1911,7 @@ async function startServer() {
     } catch (err: any) {
       return res.status(500).json({
         success: false,
-        error: err.message,
+        error: 'Storage diagnostics failed.',
       });
     }
   });
@@ -2199,7 +1981,7 @@ async function startServer() {
       tests.push({
         name: 'Isolated Storage Object Paths',
         passed: distinctPaths,
-        details: `Path A: "${finishedA?.storagePath}" vs Path B: "${finishedB?.storagePath}"`,
+        details: 'The two jobs use distinct storage paths.',
       });
 
       // Check 3: Distinct SHA-256 Hashes
@@ -2211,7 +1993,7 @@ async function startServer() {
         passed: distinctSha,
         details: distinctSha
           ? `SHA-256 A (${shaA?.substring(0, 16)}...) != SHA-256 B (${shaB?.substring(0, 16)}...)`
-          : `SHA mismatch check failed: shaA=${shaA}, shaB=${shaB}`,
+          : 'The completed jobs did not produce distinct verified content hashes.',
       });
 
       // Check 4: No Fallback Substitution on Invalid URL
@@ -2242,7 +2024,7 @@ async function startServer() {
         name: 'Strict Upstream Failure (No Fallback Substitution)',
         passed: invalidJobFailed,
         details: invalidJobFailed
-          ? `Unresolvable media accurately failed with: "${finishedInvalid?.stepMessage}" without substituting synthetic video.`
+          ? 'Invalid media failed without substituting synthetic video.'
           : `Expected job to fail, but status was: ${finishedInvalid?.status}`,
       });
 
@@ -2250,15 +2032,13 @@ async function startServer() {
       return res.json({
         success: allPassed,
         summary: allPassed ? 'All controlled A/B and identity verification tests PASSED.' : 'Some A/B verification tests failed.',
-        jobA: { id: jobA.id, status: finishedA?.status, sha256: finishedA?.sha256, path: finishedA?.storagePath },
-        jobB: { id: jobB.id, status: finishedB?.status, sha256: finishedB?.sha256, path: finishedB?.storagePath },
-        invalidJob: { id: invalidJob.id, status: finishedInvalid?.status, error: finishedInvalid?.stepMessage },
+        jobs: { jobA: finishedA?.status, jobB: finishedB?.status, invalidJob: finishedInvalid?.status },
         tests,
       });
     } catch (err: any) {
       return res.status(500).json({
         success: false,
-        error: err.message,
+        error: 'A/B diagnostic failed.',
       });
     }
   });
@@ -2340,58 +2120,7 @@ async function startServer() {
     } catch (err: any) {
       return res.status(500).json({
         success: false,
-        error: err.message,
-      });
-    }
-  });
-
-  // ==========================================
-  // GET & POST /api/diagnostics/inspect-media (Validate upstream response structure safely)
-  // ==========================================
-  app.all('/api/diagnostics/inspect-media', async (req, res) => {
-    const rawUrl = (req.query.url as string) || (req.body?.url as string);
-    if (!rawUrl) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'INVALID_URL', message: 'Query or body parameter "url" is required.' },
-      });
-    }
-
-    try {
-      const parsed = new URL(rawUrl);
-      const provider = providerRegistry.findProvider(parsed);
-      const providerName = provider ? provider.name : 'Direct Media Stream';
-
-      const validation = await fetchAndValidateMediaStream(rawUrl, {
-        maxRedirects: 5,
-        timeoutMs: 15000,
-      });
-
-      let resolvedHostname = 'unknown';
-      try {
-        if (validation.finalUrl) {
-          resolvedHostname = new URL(validation.finalUrl).hostname;
-        }
-      } catch {}
-
-      return res.json({
-        provider: providerName,
-        resolverStatus: 200,
-        resolverContentType: 'application/json',
-        resolvedUrlHostname: resolvedHostname,
-        mediaStatus: validation.statusCode || 200,
-        mediaContentType: validation.contentType || 'unknown',
-        looksLikeHtml: !!validation.isHtml,
-        looksLikeMedia: validation.valid,
-        errorCategory: validation.errorCategory || null,
-        errorMessage: validation.errorMessage || (validation as any).error || null,
-        detectedMime: validation.mimeType || null,
-        detectedFormat: validation.extension || null,
-      });
-    } catch (err: any) {
-      return res.status(500).json({
-        success: false,
-        error: { code: 'INSPECT_FAILED', message: err.message },
+        error: 'Preview diagnostics failed.',
       });
     }
   });
@@ -2545,5 +2274,9 @@ ${blogUrls}
 }
 
 startServer().catch(err => {
-  console.error('Failed to start server:', err);
+  const startupMessage = err instanceof Error && err.message.startsWith('YTDLP_PATH ')
+    ? err.message
+    : 'Failed to start server.';
+  console.error(startupMessage);
+  process.exit(1);
 });

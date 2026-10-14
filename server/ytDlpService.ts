@@ -15,7 +15,7 @@ import {
   sanitizeLogMessage,
 } from './ffmpeg.js';
 import { supabaseStorage, STORAGE_BUCKET, getSupabaseConfig } from './supabase.js';
-import { validateAndNormalizeUrl } from './security.js';
+import { validateAndNormalizeUrl, validateAndNormalizeUrlAsync } from './security.js';
 import { MediaFormat, MediaMetadata, YtDlpErrorCode } from './types.js';
 import {
   fetchRapidApiSocial,
@@ -125,6 +125,38 @@ export class YtDlpService {
     type: 'executable' | 'python_module';
     resolvedPath: string;
   }> {
+    if (process.env.NODE_ENV === 'production') {
+      const configuredPath = process.env.YTDLP_PATH?.trim();
+      if (!configuredPath) {
+        throw new Error('YTDLP_PATH is required in production and must point to a pre-provisioned executable.');
+      }
+
+      let resolvedPath: string;
+      try {
+        const stat = fs.statSync(configuredPath);
+        if (!stat.isFile()) throw new Error('Not a file.');
+        fs.accessSync(configuredPath, fs.constants.X_OK);
+        resolvedPath = fs.realpathSync(configuredPath);
+      } catch {
+        throw new Error('YTDLP_PATH must point to an existing executable file.');
+      }
+
+      try {
+        const { stdout } = await execFileAsync(resolvedPath, ['--version'], { timeout: 5000 });
+        if (!stdout.trim()) throw new Error('Empty version output.');
+      } catch {
+        throw new Error('YTDLP_PATH must point to an executable yt-dlp binary.');
+      }
+
+      this.detectedCommand = {
+        command: resolvedPath,
+        argsPrefix: [],
+        type: 'executable',
+        resolvedPath,
+      };
+      return this.detectedCommand;
+    }
+
     if (this.detectedCommand) {
       return this.detectedCommand;
     }
@@ -764,7 +796,7 @@ export class YtDlpService {
    * Extracts only the metadata required by the application and never treats HTML pages as success.
    */
   public async getMetadata(sourceUrl: string): Promise<MediaMetadata> {
-    const urlValidation = validateAndNormalizeUrl(sourceUrl);
+    const urlValidation = await validateAndNormalizeUrlAsync(sourceUrl);
     if (!urlValidation.isValid || !urlValidation.normalizedUrl) {
       const err: any = new Error(urlValidation.error || 'Invalid or forbidden URL.');
       err.code = 'INVALID_SOURCE_URL';
@@ -935,11 +967,11 @@ export class YtDlpService {
       // If yt-dlp was challenged by bot verification or failed, attempt RapidAPI fallback
       let rapidApiFallbackDetail: string | null = null;
       try {
-        console.log(`[YtDlpService] Attempting RapidAPI metadata fallback for ${targetUrl}...`);
+        console.log(`[YtDlpService] Attempting RapidAPI metadata fallback for host=${new URL(targetUrl).hostname}...`);
         const rapidResult = await fetchRapidApiDetailed(targetUrl);
         if (rapidResult.ok && rapidResult.data && rapidResult.data.medias && rapidResult.data.medias.length > 0) {
           const fallbackMeta = convertSocialApiToMetadata(rapidResult.data, targetUrl);
-          console.log(`[YtDlpService] RapidAPI metadata extraction succeeded for ${targetUrl} (${fallbackMeta.formats.length} formats).`);
+          console.log(`[YtDlpService] RapidAPI metadata extraction succeeded for host=${new URL(targetUrl).hostname} (${fallbackMeta.formats.length} formats).`);
           return fallbackMeta;
         } else {
           rapidApiFallbackDetail = this.formatRapidApiFallbackFailure(rapidResult);
@@ -1012,6 +1044,13 @@ export class YtDlpService {
    */
   public async executeDownload(options: YtDlpDownloadOptions): Promise<YtDlpExecutionResult> {
     const { jobId, sourceUrl, format = 'mp4', quality = '1080p', formatType = 'video', title, trimParams } = options;
+    const sourceValidation = await validateAndNormalizeUrlAsync(sourceUrl);
+    if (!sourceValidation.isValid || !sourceValidation.normalizedUrl) {
+      const error: any = new Error(sourceValidation.error || 'Invalid or forbidden media URL.');
+      error.code = 'INVALID_SOURCE_URL';
+      throw error;
+    }
+    const safeSourceUrl = sourceValidation.normalizedUrl;
     const isAudioOnly = formatType === 'audio' || format === 'mp3' || format === 'm4a' || format === 'wav';
     const cleanFilename = sanitizeMediaFilename(title || 'media_asset', quality, format);
     
@@ -1057,7 +1096,7 @@ export class YtDlpService {
     const startTime = Date.now();
     let sourceHost = 'unknown';
     try {
-      sourceHost = new URL(sourceUrl).hostname;
+      sourceHost = new URL(safeSourceUrl).hostname;
     } catch {}
 
     const attempts = [
@@ -1106,7 +1145,7 @@ export class YtDlpService {
           ytdlArgs.push('--merge-output-format', 'mp4');
         }
 
-        ytdlArgs.push('-o', rawTemplate, sourceUrl);
+        ytdlArgs.push('-o', rawTemplate, safeSourceUrl);
 
         console.log(`[YtDlpService] Executing stream extraction (${attempt.name}) for Job ${jobId}`);
 
@@ -1243,8 +1282,8 @@ export class YtDlpService {
     let rapidApiFallbackDetail: string | null = null;
     if (!extractionSuccess || !fs.existsSync(outputPath)) {
       try {
-        console.log(`[YtDlpService] Attempting RapidAPI stream resolution fallback for Job ${jobId} (${sourceUrl})...`);
-        const rapidResult = await fetchRapidApiDetailed(sourceUrl);
+        console.log(`[YtDlpService] Attempting RapidAPI stream resolution fallback for Job ${jobId} (host=${sourceHost})...`);
+        const rapidResult = await fetchRapidApiDetailed(safeSourceUrl);
         if (rapidResult.ok && rapidResult.data && rapidResult.data.medias && rapidResult.data.medias.length > 0) {
           const socialData = rapidResult.data;
           // Select suitable media stream from list

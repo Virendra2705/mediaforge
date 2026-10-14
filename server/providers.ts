@@ -1,5 +1,21 @@
 import { MediaMetadata, MediaFormat } from './types.js';
-import { isHtmlOrChallengeContent, inspectMediaSignature } from './upstreamValidator.js';
+import { fetchAndValidateMediaStream } from './upstreamValidator.js';
+import { readSafeHttpResponseText, requestSafeHttp } from './outboundHttp.js';
+
+async function fetchProviderJson(url: string, timeoutMs: number): Promise<any> {
+  const response = await requestSafeHttp(url, {
+    headers: { Accept: 'application/json' },
+    maxRedirects: 0,
+    maxResponseBytes: 1024 * 1024,
+    overallTimeoutMs: timeoutMs,
+  });
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    response.abort();
+    return null;
+  }
+  const text = await readSafeHttpResponseText(response);
+  return text ? JSON.parse(text) : null;
+}
 
 export interface DownloadResult {
   streamUrl?: string;
@@ -51,66 +67,17 @@ export class DirectMediaProvider implements MediaProvider {
     let contentType = isAudio ? 'audio/mpeg' : 'video/mp4';
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch(rawUrl, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          Accept: 'video/*,audio/*,*/*;q=0.8',
-        },
+      const validation = await fetchAndValidateMediaStream(rawUrl, {
+        expectedType: isAudio ? 'audio' : 'video',
+        timeoutMs: 8000,
+        maxResponseBytes: 8 * 1024 * 1024,
       });
-      clearTimeout(timeoutId);
-
-      const status = res.status;
-      const ct = (res.headers.get('content-type') || '').toLowerCase();
-      const cl = res.headers.get('content-length');
-
-      if (status === 401 || status === 403) {
-        throw new Error('UPSTREAM_AUTH_REQUIRED: The upstream media provider requires authentication or blocked access.');
+      if (!validation.valid) {
+        const code = validation.errorCategory || 'DOWNLOAD_FAILED';
+        throw new Error(`${code}: ${validation.errorMessage || 'The direct media stream could not be validated.'}`);
       }
-      if (status === 404) {
-        throw new Error('UPSTREAM_NOT_MEDIA: The media stream URL was not found on origin server (HTTP 404).');
-      }
-      if (status >= 400) {
-        throw new Error(`DOWNLOAD_FAILED: Upstream server returned error status ${status}.`);
-      }
-
-      // If upstream returned HTML / auth challenge page header
-      if (
-        ct.includes('text/html') ||
-        ct.includes('application/xhtml') ||
-        ct.includes('application/json') ||
-        ct.includes('text/plain') ||
-        ct.includes('application/xml')
-      ) {
-        const textSample = await res.text();
-        if (isHtmlOrChallengeContent(textSample)) {
-          throw new Error('UPSTREAM_HTML_CHALLENGE: The media provider returned an authentication or security challenge page instead of media.');
-        } else {
-          throw new Error('UPSTREAM_NOT_MEDIA: The requested URL resolved to a web page rather than a direct media stream.');
-        }
-      }
-
-      // Check initial chunk for HTML or binary signature
-      if (res.body) {
-        const reader = res.body.getReader();
-        const { value } = await reader.read();
-        if (value && value.length > 0) {
-          const chunkBuf = Buffer.from(value);
-          if (isHtmlOrChallengeContent(chunkBuf)) {
-            throw new Error('UPSTREAM_HTML_CHALLENGE: The media provider returned an authentication or cookie challenge page instead of media.');
-          }
-          const sig = inspectMediaSignature(chunkBuf, isAudio ? 'audio' : 'video');
-          if (!sig.valid) {
-            throw new Error(`MEDIA_SIGNATURE_INVALID: ${sig.error || 'Binary response is not a recognized media format'}`);
-          }
-        }
-      }
-
-      if (cl) contentLength = parseInt(cl, 10);
-      if (ct) contentType = ct;
+      if (validation.contentLength) contentLength = validation.contentLength;
+      if (validation.contentType) contentType = validation.contentType;
     } catch (err: any) {
       if (
         err.message.startsWith('UPSTREAM_') ||
@@ -330,17 +297,14 @@ export class YouTubeProvider implements MediaProvider {
 
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-      const res = await fetch(oembedUrl, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = (await res.json()) as { title?: string; author_name?: string; author_url?: string; thumbnail_url?: string };
+      {
+        const data = (await fetchProviderJson(oembedUrl, 4000)) as { title?: string; author_name?: string; author_url?: string; thumbnail_url?: string } | null;
+        if (data) {
         if (data.title) title = data.title;
         if (data.author_name) authorName = data.author_name;
         if (data.author_url) authorUrl = data.author_url;
         if (data.thumbnail_url) thumbnail = data.thumbnail_url;
+        }
       }
     } catch {
       // Fallback to video ID metadata
@@ -548,17 +512,14 @@ export class VimeoProvider implements MediaProvider {
 
     try {
       const oembedUrl = `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(rawUrl)}`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-      const res = await fetch(oembedUrl, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string; duration?: number };
+      {
+        const data = (await fetchProviderJson(oembedUrl, 4000)) as { title?: string; author_name?: string; thumbnail_url?: string; duration?: number } | null;
+        if (data) {
         if (data.title) title = data.title;
         if (data.author_name) authorName = data.author_name;
         if (data.thumbnail_url) thumbnail = data.thumbnail_url;
         if (data.duration) duration = data.duration;
+        }
       }
     } catch {
       // Fallback
@@ -667,16 +628,13 @@ export class SoundCloudProvider implements MediaProvider {
 
     try {
       const oembedUrl = `https://soundcloud.com/oembed?url=${encodeURIComponent(rawUrl)}&format=json`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-      const res = await fetch(oembedUrl, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string };
+      {
+        const data = (await fetchProviderJson(oembedUrl, 4000)) as { title?: string; author_name?: string; thumbnail_url?: string } | null;
+        if (data) {
         if (data.title) title = data.title;
         if (data.author_name) authorName = data.author_name;
         if (data.thumbnail_url) thumbnail = data.thumbnail_url;
+        }
       }
     } catch {
       // Fallback

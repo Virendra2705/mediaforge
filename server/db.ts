@@ -8,6 +8,83 @@ import {
   UserAccount
 } from './types.js';
 import { postgresManager } from './postgres.js';
+import { hashPassword, getConfiguredAdminEmail, getAdminPasswordEnv, isValidPasswordHashFormat } from './auth.js';
+import crypto from 'crypto';
+
+export function reconcileAdminAccount(
+  users: Map<string, UserAccount>,
+  configuredEmail: string | null,
+  configuredPasswordHash: string | null,
+): void {
+  const adminEmail = configuredEmail?.trim().toLowerCase() || null;
+  const canProvision = !!adminEmail && !!configuredPasswordHash && isValidPasswordHashFormat(configuredPasswordHash);
+
+  for (const [id, user] of users) {
+    if (user.role === 'admin' && (!canProvision || user.email.toLowerCase() !== adminEmail)) {
+      user.role = 'user';
+      users.set(id, user);
+    }
+  }
+
+  if (!canProvision || !adminEmail || !configuredPasswordHash) return;
+
+  const existing = [...users.entries()].find(([, user]) => user.email.toLowerCase() === adminEmail);
+  if (existing) {
+    const [id, user] = existing;
+    user.role = 'admin';
+    user.tier = 'pro';
+    // Environment credentials bootstrap accounts that lack a password; they
+    // must not silently reset a password changed by the account owner.
+    if (!user.passwordHash) user.passwordHash = configuredPasswordHash;
+    users.set(id, user);
+    return;
+  }
+
+  const emailLocal = adminEmail.split('@')[0];
+  const name = emailLocal.replace(/[._]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+  const id = `usr_admin_env_${crypto.randomUUID()}`;
+  users.set(id, {
+    id,
+    name,
+    email: adminEmail,
+    role: 'admin',
+    passwordHash: configuredPasswordHash,
+    createdAt: new Date().toISOString(),
+    downloadsCount: 0,
+    tier: 'pro',
+  });
+}
+
+export type PersistenceMode = 'postgres' | 'memory' | 'unavailable';
+
+export function resolvePersistenceMode(
+  connected: boolean,
+  environment = process.env.NODE_ENV,
+  allowMemoryFallback = process.env.ALLOW_IN_MEMORY_DATABASE,
+): Exclude<PersistenceMode, 'unavailable'> {
+  if (connected) return 'postgres';
+  if (environment === 'production') {
+    throw new Error('Required PostgreSQL persistence is unavailable.');
+  }
+  if (allowMemoryFallback !== 'true') {
+    throw new Error('PostgreSQL is unavailable and in-memory fallback is not explicitly enabled.');
+  }
+  return 'memory';
+}
+
+export async function initializePersistenceMode(
+  initializePostgres: () => Promise<boolean>,
+  environment = process.env.NODE_ENV,
+  allowMemoryFallback = process.env.ALLOW_IN_MEMORY_DATABASE,
+): Promise<Exclude<PersistenceMode, 'unavailable'>> {
+  let connected: boolean;
+  try {
+    connected = await initializePostgres();
+  } catch {
+    throw new Error('Database initialization failed.');
+  }
+  return resolvePersistenceMode(connected, environment, allowMemoryFallback);
+}
 
 class DatabaseStore {
   public jobs: Map<string, MediaJob> = new Map();
@@ -17,6 +94,8 @@ class DatabaseStore {
   public blogPosts: Map<string, BlogPost> = new Map();
   public auditLogs: AuditLog[] = [];
   public settings: SystemSettings;
+  public isReady = false;
+  public persistenceMode: PersistenceMode = 'unavailable';
 
   constructor() {
     this.settings = {
@@ -78,9 +157,15 @@ class DatabaseStore {
   }
 
   public async initAsync(): Promise<void> {
+    this.isReady = false;
+    this.persistenceMode = 'unavailable';
     try {
-      const connected = await postgresManager.initDatabase();
+      const persistenceMode = await initializePersistenceMode(() => postgresManager.initDatabase());
+      const connected = persistenceMode === 'postgres';
       if (connected) {
+        const dbUsers = await postgresManager.getUsers();
+        for (const user of dbUsers) this.users.set(user.id, user);
+
         // Hydrate from PostgreSQL or seed to Postgres
         const dbPosts = await postgresManager.getBlogPosts();
         if (dbPosts.length > 0) {
@@ -111,23 +196,57 @@ class DatabaseStore {
           this.jobs.set(job.id, job);
         }
 
-        console.log('[Neon PostgreSQL] Persistence synchronized successfully.');
+        if (!postgresManager.isConnected) throw new Error('PostgreSQL connection was lost during initialization.');
+        console.log('[PostgreSQL] Persistence synchronized successfully.');
+      } else {
+        console.log('[Database] Explicit development in-memory fallback is active.');
       }
-    } catch (err: any) {
-      console.log('[Neon PostgreSQL] Initialization notice (using memory store):', err?.message || err);
+      await this._provisionAdminFromEnv(persistenceMode === 'postgres');
+      if (persistenceMode === 'postgres' && !postgresManager.isConnected) {
+        throw new Error('PostgreSQL connection was lost during initialization.');
+      }
+      this.persistenceMode = persistenceMode;
+      this.isReady = true;
+    } catch {
+      this.isReady = false;
+      this.persistenceMode = 'unavailable';
+      console.log('[Database] Initialization failed; the application will not serve requests.');
+      throw new Error('Database initialization failed.');
     }
   }
 
+  private async _provisionAdminFromEnv(persistToPostgres: boolean): Promise<void> {
+    const adminEmail = getConfiguredAdminEmail();
+    const { hash: existingHash, plaintext } = getAdminPasswordEnv();
+    let passwordHash: string | null = null;
+    if (existingHash && isValidPasswordHashFormat(existingHash)) {
+      passwordHash = existingHash;
+    } else if (!existingHash && plaintext) {
+      passwordHash = await hashPassword(plaintext);
+    }
+
+    reconcileAdminAccount(this.users, adminEmail, passwordHash);
+    if (persistToPostgres) {
+      for (const user of this.users.values()) await postgresManager.saveUser(user);
+    }
+
+    if (adminEmail && passwordHash) console.log('[Auth] Administrator account provisioned.');
+    else console.log('[Auth] Admin provisioning is not configured; existing admin roles were removed.');
+  }
+
+
   private seedInitialData() {
-    // Seed Demo User & Admin
+    // Seed demo accounts with role 'user' only.
+    // No passwordHash — these accounts cannot log in until passwords are set.
+    // Admin role is assigned exclusively by _provisionAdminFromEnv() from env vars.
     this.users.set('usr_demo_1', {
       id: 'usr_demo_1',
       name: 'Alex Morgan',
       email: 'alex.morgan@example.com',
-      role: 'admin',
+      role: 'user',
       createdAt: '2026-01-15T08:00:00.000Z',
       downloadsCount: 142,
-      tier: 'pro'
+      tier: 'free'
     });
 
     this.users.set('usr_demo_2', {
@@ -139,6 +258,7 @@ class DatabaseStore {
       downloadsCount: 19,
       tier: 'free'
     });
+
 
     // Seed Blog Posts
     const posts: BlogPost[] = [

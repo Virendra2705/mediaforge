@@ -10,6 +10,7 @@ import {
   ClientMediaFormat,
 } from '../types';
 import { translations, TranslationDict } from '../i18n/translations';
+import { stripPersistedJobCapabilities } from '../utils/jobHistory';
 
 export interface AuthUser {
   id: string;
@@ -304,7 +305,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [recentJobs, setRecentJobs] = useState<ActiveJobState[]>(() => {
     try {
       const saved = localStorage.getItem('mf_recent_jobs');
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return [];
+      const safeJobs = stripPersistedJobCapabilities(parsed);
+      if (JSON.stringify(safeJobs) !== JSON.stringify(parsed)) {
+        localStorage.setItem('mf_recent_jobs', JSON.stringify(safeJobs));
+      }
+      return safeJobs;
     } catch {
       return [];
     }
@@ -313,7 +321,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const deleteRecentJob = (id: string) => {
     setRecentJobs((prev) => {
       const updated = prev.filter((j) => j.id !== id);
-      localStorage.setItem('mf_recent_jobs', JSON.stringify(updated));
+      localStorage.setItem('mf_recent_jobs', JSON.stringify(stripPersistedJobCapabilities(updated)));
       return updated;
     });
   };
@@ -416,6 +424,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       const initialJob: ActiveJobState = {
         id: data.data.jobId,
+        jobCapability: data.data.jobCapability,
         status: data.data.status,
         progress: data.data.progress,
         stepMessage: data.data.stepMessage,
@@ -430,18 +439,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setJobModalOpen(true);
 
       // Start Polling for Job Completion
-      pollJobStatus(data.data.jobId);
+      pollJobStatus(data.data.jobId, data.data.jobCapability);
     } catch (err: any) {
       addToast('error', 'Download Error', err.message || 'Failed to start media job.');
     }
   };
 
   // Polling Loop for Job Status
-  const pollJobStatus = (jobId: string) => {
+  const pollJobStatus = (jobId: string, jobCapability?: string) => {
     const interval = setInterval(async () => {
       try {
         const headers: Record<string, string> = {};
         if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+        if (jobCapability) headers['X-Job-Capability'] = jobCapability;
 
         const res = await fetch(`/api/jobs/${jobId}`, { headers });
         const data = await res.json();
@@ -462,10 +472,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             job.stepMessage = job.errorMessage;
           }
         }
-        setActiveJob((prev) => (prev ? { ...prev, ...job } : job));
+        setActiveJob((prev) => (prev ? { ...prev, ...job, jobCapability: prev.jobCapability } : { ...job, jobCapability }));
 
         if (job.status === 'READY') {
           clearInterval(interval);
+          try {
+            const linkHeaders: Record<string, string> = {};
+            if (authToken) linkHeaders['Authorization'] = `Bearer ${authToken}`;
+            if (jobCapability) linkHeaders['X-Job-Capability'] = jobCapability;
+            const linkResponse = await fetch(`/api/download?jobId=${encodeURIComponent(jobId)}`, { headers: linkHeaders });
+            const linkData = await linkResponse.json();
+            if (linkResponse.ok && linkData.success) {
+              const downloadUrl = linkData.downloadUrl || linkData.data?.downloadUrl;
+              setActiveJob((prev) => prev ? { ...prev, downloadUrl, jobCapability } : prev);
+              Object.assign(job, { downloadUrl });
+            }
+          } catch { /* Download can be requested again from the job modal. */ }
           try {
             confetti({
               particleCount: 50,
@@ -479,7 +501,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setRecentJobs((prev) => {
             const exists = prev.some((j) => j.id === job.id);
             const next = exists ? prev.map((j) => (j.id === job.id ? job : j)) : [job, ...prev.slice(0, 19)];
-            localStorage.setItem('mf_recent_jobs', JSON.stringify(next));
+            localStorage.setItem('mf_recent_jobs', JSON.stringify(stripPersistedJobCapabilities(next)));
             return next;
           });
 
@@ -498,6 +520,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const headers: Record<string, string> = {};
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      if (activeJob.jobCapability) headers['X-Job-Capability'] = activeJob.jobCapability;
 
       await fetch(`/api/jobs/${activeJob.id}/cancel`, { method: 'POST', headers });
       setActiveJob((prev) => (prev ? { ...prev, status: 'CANCELLED', stepMessage: 'Cancelled by user.' } : null));

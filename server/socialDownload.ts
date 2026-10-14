@@ -1,5 +1,7 @@
 import { MediaMetadata, MediaFormat } from './types.js';
 import { ytDlpService } from './ytDlpService.js';
+import { readSafeHttpResponseText, requestSafeHttp } from './outboundHttp.js';
+import { validateAndNormalizeUrlAsync } from './security.js';
 
 export interface SocialMediaItem {
   url: string;
@@ -61,6 +63,19 @@ export async function fetchRapidApiDetailed(
   targetUrl: string,
   customApiKey?: string
 ): Promise<RapidApiDetailedResponse> {
+  const outboundUrl = await validateAndNormalizeUrlAsync(targetUrl);
+  if (!outboundUrl.isValid || !outboundUrl.normalizedUrl) {
+    return {
+      ok: false,
+      statusCode: 400,
+      statusText: 'Invalid Source URL',
+      headers: {},
+      bodyText: outboundUrl.error || 'The source URL is not allowed.',
+      data: null,
+      errorMessage: 'The source URL is not an allowed public HTTP/HTTPS destination.',
+    };
+  }
+  targetUrl = outboundUrl.normalizedUrl;
   const apiKey = (customApiKey && customApiKey.trim().length > 10) ? customApiKey.trim() : DEFAULT_RAPIDAPI_KEY;
   const endpoint = `https://${RAPIDAPI_HOST}/v1/social/autolink`;
 
@@ -79,34 +94,30 @@ export async function fetchRapidApiDetailed(
   console.log('[VideoDownloader API Request]', {
     method: 'POST',
     url: endpoint,
-    targetUrl,
     host: RAPIDAPI_HOST,
     hasApiKey: !!apiKey && apiKey.length > 5,
   });
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    const response = await fetch(endpoint, {
+    const response = await requestSafeHttp(endpoint, {
       method: 'POST',
+      maxRedirects: 0,
+      maxResponseBytes: 4 * 1024 * 1024,
+      overallTimeoutMs: 15000,
       headers: {
         'Content-Type': 'application/json',
         'x-rapidapi-host': RAPIDAPI_HOST,
         'x-rapidapi-key': apiKey,
       },
       body: JSON.stringify({ url: targetUrl }),
-      signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
 
     const headersRecord: Record<string, string> = {};
-    response.headers.forEach((val, key) => {
-      headersRecord[key.toLowerCase()] = val;
-    });
+    for (const [key, value] of Object.entries(response.headers)) {
+      if (value !== undefined) headersRecord[key.toLowerCase()] = Array.isArray(value) ? value.join(', ') : String(value);
+    }
 
-    const bodyText = await response.text();
+    const bodyText = await readSafeHttpResponseText(response);
     let data: SocialApiResponse | null = null;
     let errorMessage: string | undefined;
 
@@ -123,21 +134,21 @@ export async function fetchRapidApiDetailed(
       errorMessage = 'Non-JSON response received from RapidAPI endpoint.';
     }
 
-    const effectiveErrorMessage = errorMessage || (response.ok ? undefined : `HTTP status ${response.status}: ${response.statusText}`);
+    const responseOk = response.statusCode >= 200 && response.statusCode < 300;
+    const effectiveErrorMessage = errorMessage || (responseOk ? undefined : `HTTP status ${response.statusCode}: ${response.statusMessage || ''}`);
 
     console.log('[VideoDownloader API Response]', {
-      statusCode: response.status,
-      statusText: response.statusText,
+      statusCode: response.statusCode,
+      statusText: response.statusMessage || '',
       headers: headersRecord,
-      bodySnippet: bodyText ? bodyText.slice(0, 500) : '',
       hasMedias: !!(data?.medias && data.medias.length > 0),
       ...(effectiveErrorMessage ? { errorMessage: effectiveErrorMessage } : {}),
     });
 
     return {
-      ok: response.ok && !!(data && !data.error && data.medias && data.medias.length > 0),
-      statusCode: response.status,
-      statusText: response.statusText,
+      ok: responseOk && !!(data && !data.error && data.medias && data.medias.length > 0),
+      statusCode: response.statusCode,
+      statusText: response.statusMessage || '',
       headers: headersRecord,
       bodyText,
       data,
@@ -146,7 +157,6 @@ export async function fetchRapidApiDetailed(
   } catch (err: any) {
     console.log('[VideoDownloader API Network Notice]:', {
       message: err.message,
-      targetUrl,
     });
     return {
       ok: false,
@@ -258,8 +268,7 @@ export async function fetchSocialAllInOneWithDetails(
       ? 'RapidAPI plan quota reached (HTTP 429)'
       : isRapidAuth
       ? `RapidAPI authentication issue (HTTP ${rapidResult.statusCode})`
-      : `RapidAPI status (HTTP ${rapidResult.statusCode}): ${rapidRawMessage.slice(0, 200)}`,
-    targetUrl,
+      : `RapidAPI status (HTTP ${rapidResult.statusCode})`,
   });
 
   // Fallback: Use ytDlpService to extract rich social video info
@@ -286,10 +295,9 @@ export async function fetchSocialAllInOneWithDetails(
     console.log('[VideoDownloader API Fallback Notice]:', {
       origin,
       rapidApiStatus: rapidResult.statusCode,
-      rapidApiNotice: isRapidQuota ? 'RapidAPI plan quota reached on current key.' : rapidRawMessage?.slice(0, 150),
+      rapidApiNotice: isRapidQuota ? 'RapidAPI plan quota reached on current key.' : `RapidAPI status ${rapidResult.statusCode}`,
       fallbackNotice: rawError?.slice(0, 150),
       isBotChallenge,
-      targetUrl,
     });
 
     const cleanUserMessage =

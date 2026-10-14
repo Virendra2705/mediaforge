@@ -1,6 +1,21 @@
 import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { db } from './db.js';
+import { postgresManager } from './postgres.js';
+
+function scryptAsync(
+  password: string,
+  salt: string,
+  keylen: number,
+  options: crypto.ScryptOptions,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, keylen, options, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+}
 
 export interface SessionUser {
   id: string;
@@ -81,14 +96,15 @@ export function createSessionToken(user: SessionUser, ttlHours = 72): string {
   const headerB64 = base64UrlEncode(JSON.stringify(header));
   const payloadB64 = base64UrlEncode(JSON.stringify(claims));
   const dataToSign = `${headerB64}.${payloadB64}`;
-  const signature = crypto.createHmac('sha256', secret).update(dataToSign).digest();
-  const signatureB64 = base64UrlEncode(signature);
+  const signatureBytes = crypto.createHmac('sha256', secret).update(dataToSign).digest();
+  const signatureB64 = base64UrlEncode(signatureBytes);
 
   return `${dataToSign}.${signatureB64}`;
 }
 
 /**
  * Verify a session token and return the user payload if valid.
+ * Compares raw HMAC digest bytes using timingSafeEqual.
  */
 export function verifySessionToken(token?: string | null): SessionUser | null {
   if (!token || typeof token !== 'string') return null;
@@ -101,13 +117,19 @@ export function verifySessionToken(token?: string | null): SessionUser | null {
   try {
     const secret = getAuthSecret();
     const dataToSign = `${headerB64}.${payloadB64}`;
-    const expectedSig = crypto.createHmac('sha256', secret).update(dataToSign).digest();
-    const expectedSigB64 = base64UrlEncode(expectedSig);
 
-    const sigBuf = Buffer.from(signatureB64);
-    const expBuf = Buffer.from(expectedSigB64);
+    // Compute expected HMAC as raw bytes
+    const expectedDigest = crypto.createHmac('sha256', secret).update(dataToSign).digest();
 
-    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    // Decode the submitted signature from base64url to raw bytes
+    let sigStr = signatureB64.replace(/-/g, '+').replace(/_/g, '/');
+    while (sigStr.length % 4 !== 0) sigStr += '=';
+    const submittedDigest = Buffer.from(sigStr, 'base64');
+
+    if (
+      submittedDigest.length !== expectedDigest.length ||
+      !crypto.timingSafeEqual(submittedDigest, expectedDigest)
+    ) {
       return null;
     }
 
@@ -119,11 +141,17 @@ export function verifySessionToken(token?: string | null): SessionUser | null {
       return null; // Token expired
     }
 
+    // Only allow known, explicit roles — never derive role from any other claim
+    const role = claims.role;
+    if (role !== 'admin' && role !== 'user' && role !== 'guest') {
+      return null;
+    }
+
     return {
       id: claims.sub,
       name: claims.name,
       email: claims.email,
-      role: claims.role,
+      role,
       tier: claims.tier,
     };
   } catch {
@@ -132,7 +160,9 @@ export function verifySessionToken(token?: string | null): SessionUser | null {
 }
 
 /**
- * Extract token from request headers (Authorization: Bearer <token>), cookies, or query
+ * Extract token from request headers (Authorization: Bearer <token>) or cookies.
+ * Deliberately does NOT accept auth_token query parameters — session tokens
+ * must not travel in URLs, which appear in server logs and browser history.
  */
 export function extractTokenFromRequest(req: Request): string | null {
   const authHeader = req.headers['authorization'];
@@ -143,7 +173,7 @@ export function extractTokenFromRequest(req: Request): string | null {
     }
   }
 
-  // Check cookie header: mf_session=<token>
+  // Check HttpOnly cookie: mf_session=<token>
   const cookieHeader = req.headers['cookie'];
   if (cookieHeader && typeof cookieHeader === 'string') {
     const cookies = cookieHeader.split(';').map((c) => c.trim());
@@ -152,11 +182,6 @@ export function extractTokenFromRequest(req: Request): string | null {
         return c.substring('mf_session='.length);
       }
     }
-  }
-
-  // Check query parameter for direct download stream links
-  if (req.query?.auth_token && typeof req.query.auth_token === 'string') {
-    return req.query.auth_token;
   }
 
   return null;
@@ -171,7 +196,17 @@ export function sessionMiddleware(req: Request, res: Response, next: NextFunctio
   if (token) {
     const user = verifySessionToken(token);
     if (user) {
-      req.user = user;
+      // Resolve authorization from the current account record so a signed
+      // token cannot preserve admin privileges after the account is demoted.
+      const account = db.users.get(user.id);
+      req.user = account
+        ? { id: account.id, name: account.name, email: account.email, role: account.role, tier: account.tier }
+        : null;
+      if (!account) {
+        req.sessionToken = null;
+        next();
+        return;
+      }
       req.sessionToken = token;
     } else {
       req.user = null;
@@ -203,6 +238,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 
 /**
  * Middleware: Requires an authenticated user with role === 'admin'.
+ * The role is taken from the cryptographically verified session token only —
+ * it is never re-derived from the email or any other mutable claim.
  */
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user) {
@@ -230,47 +267,187 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+export function rejectUnverifiedPasswordRecovery(res: Response) {
+  return res.status(501).json({
+    success: false,
+    error: {
+      code: 'RECOVERY_NOT_CONFIGURED',
+      message: 'Verified recovery delivery is not configured on this server. Password reset by email alone is disabled.',
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Password hashing (scrypt)
+// ---------------------------------------------------------------------------
+
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, keylen: 64 } as const;
+
+export function isValidPasswordHashFormat(storedHash: string): boolean {
+  const match = /^scrypt:([a-f0-9]{32}):([a-f0-9]{128})$/i.exec(storedHash);
+  return !!match;
+}
+
 /**
- * Authenticate a user by email/password and return their session user object.
+ * Hash a plaintext password with a random salt using scrypt.
+ * Returns "scrypt:<salt_hex>:<hash_hex>".
  */
-export async function authenticateUser(email: string, _password?: string): Promise<SessionUser | null> {
+export async function hashPassword(plaintext: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = await scryptAsync(plaintext, salt, SCRYPT_PARAMS.keylen, {
+    N: SCRYPT_PARAMS.N,
+    r: SCRYPT_PARAMS.r,
+    p: SCRYPT_PARAMS.p,
+  }) as Buffer;
+  return `scrypt:${salt}:${derived.toString('hex')}`;
+}
+
+/**
+ * Verify a plaintext password against a stored hash.
+ * Returns false for any malformed or mismatched input.
+ */
+export async function verifyPassword(plaintext: string, storedHash: string): Promise<boolean> {
+  if (!plaintext || !storedHash || !isValidPasswordHashFormat(storedHash)) return false;
+  const parts = storedHash.split(':');
+  if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
+  const [, salt, hashHex] = parts;
+  try {
+    const derived = await scryptAsync(plaintext, salt, SCRYPT_PARAMS.keylen, {
+      N: SCRYPT_PARAMS.N,
+      r: SCRYPT_PARAMS.r,
+      p: SCRYPT_PARAMS.p,
+    }) as Buffer;
+    const storedBuf = Buffer.from(hashHex, 'hex');
+    if (derived.length !== storedBuf.length) return false;
+    return crypto.timingSafeEqual(derived, storedBuf);
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Admin configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the configured admin email from ADMIN_EMAIL environment variable.
+ * Returns null (fail-closed) when not configured.
+ * Never derives admin status from email substrings.
+ */
+export function getConfiguredAdminEmail(): string | null {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (!adminEmail || adminEmail.trim().length === 0) return null;
+  return adminEmail.trim().toLowerCase();
+}
+
+/**
+ * Returns the configured admin password hash.
+ * If ADMIN_PASSWORD_HASH is set, uses it directly (pre-hashed).
+ * If only ADMIN_PASSWORD is set, the caller should hash it on first use.
+ * Returns null when neither is configured.
+ */
+export function getAdminPasswordEnv(): { hash: string | null; plaintext: string | null } {
+  const hash = process.env.ADMIN_PASSWORD_HASH?.trim() || null;
+  const plain = process.env.ADMIN_PASSWORD?.trim() || null;
+  return { hash, plaintext: plain };
+}
+
+// ---------------------------------------------------------------------------
+// Authentication
+// ---------------------------------------------------------------------------
+
+/**
+ * Authenticate a user by email + password.
+ *
+ * Rules (fail-closed):
+ * 1. Email must match an existing account in db.users.
+ * 2. The account must have a passwordHash.
+ * 3. The submitted password must match the stored hash.
+ * 4. Admin role is taken from the persisted account record only.
+ *    It is never granted based on email content.
+ *
+ * Returns null for any failure — including unknown accounts, wrong password,
+ * or accounts without a password hash. Does NOT auto-provision accounts.
+ */
+export async function authenticateUser(email: string, password?: string): Promise<SessionUser | null> {
+  if (!email || typeof email !== 'string') return null;
+  if (!password || typeof password !== 'string' || password.length === 0) return null;
+
   const normalizedEmail = email.trim().toLowerCase();
 
-  // Check existing users in the database
+  // Look up existing account
+  let foundUser: (typeof db.users extends Map<string, infer V> ? V : never) | undefined;
   for (const user of db.users.values()) {
     if (user.email.toLowerCase() === normalizedEmail) {
-      return {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        tier: user.tier,
-      };
+      foundUser = user;
+      break;
     }
   }
 
-  // Provision new user on first login
-  const newId = `usr_${Date.now()}`;
-  const isAdmin = normalizedEmail.includes('alex') || normalizedEmail.includes('admin');
-  const role: 'admin' | 'user' = isAdmin ? 'admin' : 'user';
-  const name = email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+  if (!foundUser) {
+    // Unknown account — perform a dummy scrypt operation to prevent
+    // timing-based account enumeration, then reject.
+    await _dummyVerify(password);
+    return null;
+  }
 
-  const newUser = {
-    id: newId,
-    name,
-    email: normalizedEmail,
-    role,
-    createdAt: new Date().toISOString(),
-    downloadsCount: 0,
-    tier: (role === 'admin' ? 'pro' : 'free') as 'pro' | 'free',
-  };
+  // Account must have a password hash
+  const storedHash: string | undefined = (foundUser as any).passwordHash;
+  if (!storedHash || !isValidPasswordHashFormat(storedHash)) {
+    await _dummyVerify(password);
+    return null;
+  }
 
-  db.users.set(newId, newUser);
+  // Verify password
+  const ok = await verifyPassword(password, storedHash);
+  if (!ok) return null;
+
   return {
-    id: newUser.id,
-    name: newUser.name,
-    email: newUser.email,
-    role: newUser.role,
-    tier: newUser.tier,
+    id: foundUser.id,
+    name: foundUser.name,
+    email: foundUser.email,
+    role: foundUser.role,
+    tier: foundUser.tier,
   };
+}
+
+/**
+ * Constant-time dummy verification to prevent account enumeration via timing.
+ */
+async function _dummyVerify(password: string): Promise<void> {
+  // A static fake hash — the result is always discarded
+  const fakeHash = 'scrypt:0000000000000000000000000000000000000000:' + '0'.repeat(128);
+  await verifyPassword(password, fakeHash).catch(() => {});
+}
+
+/**
+ * Change a user's password. Requires the current password to be correct first.
+ * Returns true on success, false on any failure (wrong current password, unknown user, etc.).
+ */
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!userId || !currentPassword || !newPassword) {
+    return { success: false, error: 'All fields are required.' };
+  }
+  if (newPassword.length < 8) {
+    return { success: false, error: 'New password must be at least 8 characters.' };
+  }
+
+  const user = db.users.get(userId);
+  if (!user) return { success: false, error: 'Account not found.' };
+
+  const storedHash: string | undefined = (user as any).passwordHash;
+  if (!storedHash) return { success: false, error: 'Account has no password configured.' };
+
+  const ok = await verifyPassword(currentPassword, storedHash);
+  if (!ok) return { success: false, error: 'Current password is incorrect.' };
+
+  const newHash = await hashPassword(newPassword);
+  const updatedUser = { ...user, passwordHash: newHash };
+  await postgresManager.saveUser(updatedUser);
+  db.users.set(userId, updatedUser);
+  return { success: true };
 }

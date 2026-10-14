@@ -97,6 +97,9 @@ export interface MediaMetadata {
 export interface MediaJob {
   id: string;
   userId?: string;
+  /** SHA-256 of the one-time-returned anonymous job capability. */
+  anonymousCapabilityHash?: string;
+  anonymousCapabilityExpiresAt?: string;
   sourceUrl: string;
   sourceVideoId?: string;
   provider: string;
@@ -143,6 +146,8 @@ export interface UserAccount {
   name: string;
   email: string;
   role: 'user' | 'admin';
+  /** scrypt-hashed password in the format "scrypt:<salt_hex>:<hash_hex>" */
+  passwordHash?: string;
   createdAt: string;
   downloadsCount: number;
   tier: 'free' | 'pro';

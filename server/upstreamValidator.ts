@@ -1,7 +1,8 @@
-import http from 'http';
-import https from 'https';
 import fs from 'fs';
 import path from 'path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { requestSafeHttp, SafeHttpResponse } from './outboundHttp.js';
 
 export interface UpstreamValidationResult {
   valid: boolean;
@@ -351,6 +352,9 @@ export async function fetchAndValidateMediaStream(
     expectedType?: 'video' | 'audio' | 'all';
     maxRedirects?: number;
     timeoutMs?: number;
+    maxResponseBytes?: number;
+    signal?: AbortSignal;
+    transport?: typeof requestSafeHttp;
     destinationPath?: string;
   } = {}
 ): Promise<
@@ -363,295 +367,152 @@ export async function fetchAndValidateMediaStream(
     expectedType = 'all',
     maxRedirects = 5,
     timeoutMs = 25000,
+    maxResponseBytes = 512 * 1024 * 1024,
+    signal,
+    transport = requestSafeHttp,
     destinationPath,
   } = options;
+  let upstream: SafeHttpResponse | undefined;
+  let savedBytes = 0;
+  try {
+    upstream = await transport(initialUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Accept: 'video/*,audio/*,*/*;q=0.8',
+      },
+      signal,
+      overallTimeoutMs: timeoutMs,
+      maxRedirects,
+      maxResponseBytes,
+    });
+    const { statusCode: status, headers, finalUrl, body } = upstream;
+    const contentType = String(headers['content-type'] || '').toLowerCase();
+    const parsedLength = Number(headers['content-length']);
+    const contentLength = Number.isFinite(parsedLength) && parsedLength >= 0 ? parsedLength : undefined;
 
-  let currentUrl = initialUrl;
-  let redirectCount = 0;
-  const redirectChain: string[] = [initialUrl];
-
-  while (redirectCount < maxRedirects) {
-    let parsed: URL;
-    try {
-      parsed = new URL(currentUrl);
-    } catch {
+    if (status === 401 || status === 403) {
+      const host = new URL(finalUrl).hostname;
+      const isYouTubeCdn = host.includes('googlevideo.com') || finalUrl.includes('videoplayback');
+      upstream.abort();
       return {
-        valid: false,
-        errorCategory: 'UPSTREAM_REDIRECT_ERROR',
-        errorMessage: 'Invalid upstream URL encountered in redirect chain.',
+        valid: false, statusCode: status, finalUrl, contentType,
+        errorCategory: isYouTubeCdn ? 'UPSTREAM_MEDIA_UNAVAILABLE' : 'UPSTREAM_AUTH_REQUIRED',
+        errorMessage: isYouTubeCdn ? 'The resolved YouTube media stream is not accessible from the server.' : 'The upstream media provider requires authentication or blocked access.',
+      };
+    }
+    if (status === 404) {
+      upstream.abort();
+      return { valid: false, statusCode: status, finalUrl, contentType, errorCategory: 'UPSTREAM_NOT_MEDIA', errorMessage: 'The upstream media stream was not found (HTTP 404).' };
+    }
+    if (status < 200 || status >= 300) {
+      upstream.abort();
+      return { valid: false, statusCode: status, finalUrl, contentType, errorCategory: 'DOWNLOAD_FAILED', errorMessage: `Upstream returned non-success HTTP status ${status}.` };
+    }
+
+    const isHtmlHeader = ['text/html', 'application/xhtml', 'text/plain', 'application/json', 'application/xml'].some((type) => contentType.includes(type));
+    if (isHtmlHeader) {
+      const chunks: Buffer[] = [];
+      let bytes = 0;
+      for await (const chunk of body) {
+        const part = Buffer.from(chunk);
+        const take = Math.min(part.length, 4096 - bytes);
+        if (take > 0) chunks.push(part.subarray(0, take));
+        bytes += take;
+        if (bytes >= 4096) break;
+      }
+      upstream.abort();
+      const category = categorizeChallenge(Buffer.concat(chunks));
+      return {
+        valid: false, statusCode: status, finalUrl, contentType, isHtml: true, errorCategory: category,
+        errorMessage: category === 'UPSTREAM_HTML_CHALLENGE'
+          ? 'The media provider returned a cookie challenge page instead of media.'
+          : category === 'UPSTREAM_BOT_PROTECTION'
+            ? 'The media provider presented a bot protection or CAPTCHA verification page.'
+            : 'Upstream returned an HTML/text error document instead of a playable media stream.',
       };
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const iterator = body[Symbol.asyncIterator]();
+    const chunks: Buffer[] = [];
+    let initialLength = 0;
+    while (initialLength < 1024) {
+      const next = await iterator.next();
+      if (next.done) break;
+      const chunk = Buffer.from(next.value);
+      chunks.push(chunk);
+      initialLength += chunk.length;
+    }
+    if (initialLength === 0) {
+      upstream.abort();
+      return { valid: false, statusCode: status, finalUrl, errorCategory: 'MEDIA_EMPTY', errorMessage: 'Upstream stream contained 0 bytes.' };
+    }
+    const initialBuffer = Buffer.concat(chunks);
+    if (isHtmlOrChallengeContent(initialBuffer)) {
+      upstream.abort();
+      return {
+        valid: false, statusCode: status, finalUrl, contentType, isHtml: true,
+        errorCategory: categorizeChallenge(initialBuffer),
+        errorMessage: 'The media provider returned an authentication or security challenge page instead of the video.',
+      };
+    }
+    const sigCheck = inspectMediaSignature(initialBuffer, expectedType);
+    if (!sigCheck.valid) {
+      upstream.abort();
+      return {
+        valid: false, statusCode: status, finalUrl, contentType,
+        errorCategory: sigCheck.errorCategory || 'MEDIA_SIGNATURE_INVALID',
+        errorMessage: sigCheck.error || 'Binary response does not contain a valid media container signature.',
+      };
+    }
 
-    try {
-      const response = await fetch(currentUrl, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          Accept: 'video/*,audio/*,*/*;q=0.8',
-        },
-        redirect: 'manual',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-
-      const status = response.status;
-      const contentType = (response.headers.get('content-type') || '').toLowerCase();
-      const contentLengthHeader = response.headers.get('content-length');
-      const contentLength = contentLengthHeader ? parseInt(contentLengthHeader, 10) : undefined;
-
-      // Handle 3xx Redirects
-      if ([301, 302, 303, 307, 308].includes(status)) {
-        const location = response.headers.get('location');
-        if (!location) {
-          return {
-            valid: false,
-            statusCode: status,
-            errorCategory: 'UPSTREAM_REDIRECT_ERROR',
-            errorMessage: 'Upstream returned redirect status without a Location header.',
-          };
-        }
-
-        const nextUrl = new URL(location, currentUrl).toString();
-        redirectChain.push(nextUrl);
-        currentUrl = nextUrl;
-        redirectCount++;
-
-        // Diagnostic log without secrets
-        let nextHost = 'unknown';
-        try {
-          nextHost = new URL(nextUrl).hostname;
-        } catch {}
-        console.log(`[Upstream Redirect] Step ${redirectCount}: status=${status} targetHost=${nextHost}`);
-        continue;
-      }
-
-      // Check for HTTP Error Statuses
-      if (status === 401 || status === 403) {
-        let host = 'unknown';
-
-        try {
-          host = new URL(currentUrl).hostname;
-        } catch {}
-
-        const isYouTubeCdn =
-          host.includes('googlevideo.com') ||
-          currentUrl.includes('videoplayback');
-
-        console.log(
-          `[Upstream Stream Guard] HTTP ${status} from ${host}`
-        );
-
-        return {
-          valid: false,
-          statusCode: status,
-          finalUrl: currentUrl,
-          contentType,
-          errorCategory: isYouTubeCdn
-            ? 'UPSTREAM_MEDIA_UNAVAILABLE'
-            : 'UPSTREAM_AUTH_REQUIRED',
-          errorMessage: isYouTubeCdn
-            ? 'The resolved YouTube media stream is not accessible from the server.'
-            : 'The upstream media provider requires authentication or blocked access.',
-        };
-      }
-
-      if (status === 404) {
-        return {
-          valid: false,
-          statusCode: status,
-          finalUrl: currentUrl,
-          contentType,
-          errorCategory: 'UPSTREAM_NOT_MEDIA',
-          errorMessage: 'The upstream media stream was not found (HTTP 404).',
-        };
-      }
-
-      if (status < 200 || status >= 300) {
-        return {
-          valid: false,
-          statusCode: status,
-          finalUrl: currentUrl,
-          contentType,
-          errorCategory: 'DOWNLOAD_FAILED',
-          errorMessage: `Upstream returned non-success HTTP status ${status}.`,
-        };
-      }
-
-      // 1. Inspect Content-Type Header
-      const isHtmlHeader =
-        contentType.includes('text/html') ||
-        contentType.includes('application/xhtml') ||
-        contentType.includes('text/plain') ||
-        contentType.includes('application/json') ||
-        contentType.includes('application/xml');
-
-      if (isHtmlHeader) {
-        const textChunk = await response.text();
-        const category = categorizeChallenge(textChunk);
-
-        let host = 'unknown';
-        try { host = new URL(currentUrl).hostname; } catch {}
-        console.log(`[Upstream Stream Guard] Blocked challenge/HTML document from ${host}: category=${category}`);
-
-        return {
-          valid: false,
-          statusCode: status,
-          finalUrl: currentUrl,
-          contentType,
-          isHtml: true,
-          errorCategory: category,
-          errorMessage:
-            category === 'UPSTREAM_HTML_CHALLENGE'
-              ? 'The media provider returned a cookie challenge page instead of media.'
-              : category === 'UPSTREAM_BOT_PROTECTION'
-              ? 'The media provider presented a bot protection or CAPTCHA verification page.'
-              : 'Upstream returned an HTML/text error document instead of a playable media stream.',
-        };
-      }
-
-      // 2. Read initial chunks (accumulate at least 1024 bytes) to inspect binary signature
-      if (!response.body) {
-        return {
-          valid: false,
-          statusCode: status,
-          finalUrl: currentUrl,
-          errorCategory: 'MEDIA_EMPTY',
-          errorMessage: 'Empty response body received from upstream.',
-        };
-      }
-
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let accumulatedLength = 0;
-
-      while (accumulatedLength < 1024) {
-        const { done, value } = await reader.read();
-        if (value && value.length > 0) {
-          chunks.push(value);
-          accumulatedLength += value.length;
-        }
-        if (done) break;
-      }
-
-      if (accumulatedLength === 0 || chunks.length === 0) {
-        return {
-          valid: false,
-          statusCode: status,
-          finalUrl: currentUrl,
-          errorCategory: 'MEDIA_EMPTY',
-          errorMessage: 'Upstream stream contained 0 bytes.',
-        };
-      }
-
-      const initialBuffer = Buffer.concat(chunks);
-
-      // Check if initial bytes are HTML/challenge text despite non-HTML header
-      if (isHtmlOrChallengeContent(initialBuffer)) {
-        const category = categorizeChallenge(initialBuffer);
-        let host = 'unknown';
-        try { host = new URL(currentUrl).hostname; } catch {}
-        console.log(`[Upstream Stream Guard] Detected challenge body in binary stream from ${host}: category=${category}`);
-
-        return {
-          valid: false,
-          statusCode: status,
-          finalUrl: currentUrl,
-          contentType,
-          isHtml: true,
-          errorCategory: category,
-          errorMessage:
-            'The media provider returned an authentication or security challenge page instead of the video.',
-        };
-      }
-
-      // Validate media file signature
-      const sigCheck = inspectMediaSignature(initialBuffer, expectedType);
-      if (!sigCheck.valid) {
-        let host = 'unknown';
-        try { host = new URL(currentUrl).hostname; } catch {}
-        console.log(`[Upstream Stream Guard] Invalid media signature from ${host}: reason=${sigCheck.errorCategory || 'MEDIA_SIGNATURE_INVALID'}`);
-
-        return {
-          valid: false,
-          statusCode: status,
-          finalUrl: currentUrl,
-          contentType,
-          errorCategory: sigCheck.errorCategory || 'MEDIA_SIGNATURE_INVALID',
-          errorMessage: sigCheck.error || 'Binary response does not contain a valid media container signature.',
-        };
-      }
-
-      // 3. Save stream to destination file if path provided
-      let savedBytes = 0;
-      if (destinationPath) {
-        const destDir = path.dirname(destinationPath);
-        if (!fs.existsSync(destDir)) {
-          fs.mkdirSync(destDir, { recursive: true });
-        }
-
-        const fileWriteStream = fs.createWriteStream(destinationPath);
-        fileWriteStream.write(initialBuffer);
+    if (destinationPath) {
+      fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+      const fileWriteStream = fs.createWriteStream(destinationPath);
+      async function* remainingBytes() {
+        yield initialBuffer;
         savedBytes += initialBuffer.length;
-
         while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value && value.length > 0) {
-            fileWriteStream.write(Buffer.from(value));
-            savedBytes += value.length;
-          }
-        }
-
-        await new Promise((resolve, reject) => {
-          fileWriteStream.end(resolve);
-          fileWriteStream.on('error', reject);
-        });
-
-        if (savedBytes === 0 || !fs.existsSync(destinationPath)) {
-          return {
-            valid: false,
-            statusCode: status,
-            finalUrl: currentUrl,
-            errorCategory: 'DOWNLOAD_FAILED',
-            errorMessage: 'Failed to write media stream to temporary disk.',
-          };
+          const next = await iterator.next();
+          if (next.done) break;
+          const chunk = Buffer.from(next.value);
+          savedBytes += chunk.length;
+          yield chunk;
         }
       }
-
-      const finalMime = sigCheck.detectedMime || contentType || (expectedType === 'audio' ? 'audio/mpeg' : 'video/mp4');
-      const finalExt = sigCheck.detectedFormat || (expectedType === 'audio' ? 'mp3' : 'mp4');
-
-      let host = 'unknown';
-      try { host = new URL(currentUrl).hostname; } catch {}
-      console.log(`[Media Stream Verified] Host: ${host} | Format: ${finalExt} (${finalMime}) | Size: ${savedBytes || contentLength || 'stream'} bytes`);
-
-      return {
-        valid: true,
-        statusCode: status,
-        finalUrl: currentUrl,
-        contentType: finalMime,
-        contentLength: contentLength || savedBytes,
-        mimeType: finalMime,
-        extension: finalExt,
-        tempFilePath: destinationPath,
-        fileSizeBytes: savedBytes || contentLength,
-      };
-    } catch (fetchErr: any) {
-      clearTimeout(timer);
-      return {
-        valid: false,
-        errorCategory: 'DOWNLOAD_FAILED',
-        errorMessage: `Network error reaching media provider: ${fetchErr.message || 'Connection failed'}`,
-      };
+      try {
+        await pipeline(Readable.from(remainingBytes()), fileWriteStream);
+      } catch (error) {
+        fileWriteStream.destroy();
+        try { fs.unlinkSync(destinationPath); } catch {}
+        throw error;
+      }
+    } else {
+      upstream.abort();
     }
-  }
 
-  return {
-    valid: false,
-    errorCategory: 'UPSTREAM_REDIRECT_ERROR',
-    errorMessage: `Too many redirects (exceeded ${maxRedirects} steps).`,
-  };
+    const finalMime = sigCheck.detectedMime || contentType || (expectedType === 'audio' ? 'audio/mpeg' : 'video/mp4');
+    const finalExt = sigCheck.detectedFormat || (expectedType === 'audio' ? 'mp3' : 'mp4');
+    return {
+      valid: true,
+      statusCode: status,
+      finalUrl,
+      contentType: finalMime,
+      contentLength: contentLength || savedBytes,
+      mimeType: finalMime,
+      extension: finalExt,
+      tempFilePath: destinationPath,
+      fileSizeBytes: savedBytes || contentLength,
+    };
+  } catch (error: any) {
+    upstream?.abort();
+    if (destinationPath) {
+      try { fs.unlinkSync(destinationPath); } catch {}
+    }
+    const blocked = error?.code === 'BLOCKED_DESTINATION' || error?.code === 'INVALID_URL';
+    return {
+      valid: false,
+      errorCategory: blocked ? 'UPSTREAM_REDIRECT_ERROR' : 'DOWNLOAD_FAILED',
+      errorMessage: blocked ? 'Outbound URL or redirect destination is not allowed.' : error?.code === 'TIMEOUT' ? 'Timed out while receiving the upstream response.' : 'Network error reaching media provider.',
+    };
+  }
 }
