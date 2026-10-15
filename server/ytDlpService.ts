@@ -170,6 +170,8 @@ export class YtDlpService {
           exists,
           executable,
           errorCode: err?.code || 'INVALID_YTDLP_OUTPUT',
+          processErrorCode: err?.code ?? null,
+          processErrorSignal: err?.signal ?? null,
           errorMessage: sanitizeLogMessage(err?.message || 'yt-dlp --version returned no output.'),
           stderr: sanitizeLogMessage(String(err?.stderr || '')).slice(0, 2000),
         });
