@@ -13,7 +13,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 python3-venv \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/yt-dlp \
-    && /opt/yt-dlp/bin/python -m pip install --no-cache-dir "yt-dlp==${YTDLP_VERSION}" \
+    && /opt/yt-dlp/bin/python -m pip install --no-cache-dir "yt-dlp[default]==${YTDLP_VERSION}" \
     && chown -R node:node /opt/yt-dlp
 
 COPY package.json package-lock.json ./

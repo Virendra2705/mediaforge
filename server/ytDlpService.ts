@@ -27,6 +27,23 @@ import { fetchAndValidateMediaStream } from './upstreamValidator.js';
 
 const execFileAsync = util.promisify(execFile);
 
+/**
+ * yt-dlp 2026.08.19 can fall back to the broken tv_downgraded client when
+ * YouTube cookies are supplied. Keep the workaround scoped to cookie-backed
+ * YouTube requests; `default` avoids the auth-only client list and
+ * `web_embedded` provides a supported alternative.
+ */
+export function getYouTubeCookieCompatibilityArgs(sourceUrl: string, cookiesConfigured: boolean): string[] {
+  if (!cookiesConfigured) return [];
+  try {
+    const hostname = new URL(sourceUrl).hostname.toLowerCase();
+    if (hostname !== 'youtu.be' && hostname !== 'youtube.com' && !hostname.endsWith('.youtube.com')) return [];
+    return ['--extractor-args', 'youtube:player_client=default,web_embedded'];
+  } catch {
+    return [];
+  }
+}
+
 export interface YtDlpErrorResult {
   code: YtDlpErrorCode;
   message: string;
@@ -854,6 +871,7 @@ export class YtDlpService {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       '--js-runtimes',
       `node:${nodeRuntime}`,
+      ...getYouTubeCookieCompatibilityArgs(targetUrl, Boolean(adminCookiesPath)),
     ];
 
     if (adminCookiesPath && fs.existsSync(adminCookiesPath)) {
@@ -1162,6 +1180,7 @@ export class YtDlpService {
           '2',
           '--socket-timeout',
           '20',
+          ...getYouTubeCookieCompatibilityArgs(safeSourceUrl, Boolean(adminCookiesPath)),
         ];
 
         if (adminCookiesPath && fs.existsSync(adminCookiesPath)) {

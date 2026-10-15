@@ -4,10 +4,12 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import express from 'express';
+import { Readable } from 'node:stream';
 import {
   isHtmlOrChallengeContent,
   inspectMediaSignature,
   categorizeChallenge,
+  fetchAndValidateMediaStream,
 } from './upstreamValidator.js';
 import {
   validateMediaFile,
@@ -33,7 +35,7 @@ import {
   rejectUnverifiedPasswordRecovery,
 } from './auth.js';
 import { validateAndNormalizeUrl, validateAndNormalizeUrlAsync } from './security.js';
-import { ytDlpService } from './ytDlpService.js';
+import { getYouTubeCookieCompatibilityArgs, ytDlpService } from './ytDlpService.js';
 import { createSafeHttpTransport, isGlobalAddress } from './outboundHttp.js';
 import { registerMediaEgressRoutes } from './mediaEgressRoutes.js';
 import { parseWithEasyDownApi } from './easyDownService.js';
@@ -351,6 +353,63 @@ const tests: TestCase[] = [
         passed: false,
         details: `Expected=${expectedCode}, actual=${classification.code}`,
       };
+    },
+  },
+  {
+    name: 'YouTube extraction failure: cookie-backed requests avoid the broken tv_downgraded client',
+    run: async () => {
+      assert.deepEqual(
+        getYouTubeCookieCompatibilityArgs('https://www.youtube.com/watch?v=video-id', true),
+        ['--extractor-args', 'youtube:player_client=default,web_embedded'],
+      );
+      assert.deepEqual(getYouTubeCookieCompatibilityArgs('https://youtu.be/video-id', true), [
+        '--extractor-args', 'youtube:player_client=default,web_embedded',
+      ]);
+      assert.deepEqual(getYouTubeCookieCompatibilityArgs('https://youtube.com/watch?v=video-id', false), []);
+      assert.deepEqual(getYouTubeCookieCompatibilityArgs('https://www.tiktok.com/@user/video/1', true), []);
+
+      const failedExtraction = ytDlpService.classifyError({
+        code: 1,
+        stderr: '[youtube] video-id: The page needs to be reloaded.',
+      });
+      assert.equal(failedExtraction.code, 'YTDLP_EXECUTION_FAILED');
+      return { passed: true, details: 'Cookie-backed YouTube calls use the verified non-tv_downgraded client list; other requests retain their existing arguments.' };
+    },
+  },
+  {
+    name: 'RapidAPI media HTTP 403: inaccessible signed stream is rejected without creating output',
+    run: async () => {
+      const signedUrl = 'https://rr1.googlevideo.com/videoplayback?expire=1999999999&sig=do-not-log-this';
+      let capturedUrl = '';
+      let requestCount = 0;
+      let aborted = false;
+      const destinationPath = path.join(tmpdir(), `videofetch-403-${Date.now()}.mp4`);
+      const responseBody = Readable.from([]) as any;
+      const result = await fetchAndValidateMediaStream(signedUrl, {
+        expectedType: 'video',
+        destinationPath,
+        transport: (async (url: string) => {
+          capturedUrl = url;
+          requestCount++;
+          return {
+            statusCode: 403,
+            headers: { 'content-type': 'text/plain' },
+            finalUrl: url,
+            body: responseBody,
+            abort: () => { aborted = true; responseBody.destroy(); },
+          };
+        }) as any,
+      });
+
+      assert.equal(requestCount, 1, 'the resolved provider URL is requested once and not cached/retried');
+      assert.equal(capturedUrl, signedUrl, 'URL path and signed query are passed through unchanged');
+      assert.equal(result.valid, false);
+      assert.equal(result.statusCode, 403);
+      assert.equal(result.errorCategory, 'UPSTREAM_MEDIA_UNAVAILABLE');
+      assert.equal(aborted, true);
+      assert.equal(result.errorMessage?.includes('do-not-log-this'), false);
+      assert.equal(fs.existsSync(destinationPath), false, 'a denied response never creates a media output');
+      return { passed: true, details: 'HTTP 403 remains a hard failure; signed URL material is not included in returned diagnostics and no output is created.' };
     },
   },
 
