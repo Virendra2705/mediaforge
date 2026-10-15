@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Loader2,
   CheckCircle2,
@@ -15,6 +15,34 @@ import { useApp, SAMPLE_URLS } from '../context/AppContext';
 import { downloadMediaFile, sanitizeFilename } from '../utils/download';
 import { ActiveJobDebugPanel } from './ActiveJobDebugPanel';
 
+const completionMessages = [
+  'Your media is ready. Make it yours.',
+  'All set — your download is waiting.',
+  'Ready when you are.',
+  'Success! Your media is ready to go.',
+  'That link is now a file away.',
+  'Your file is ready for its next chapter.',
+  'A good find, ready to save.',
+  'Your download is ready to come along.',
+  'Finished and ready for you.',
+  'Your media is ready to keep close.',
+  'One link, now ready to save.',
+  'The file is ready when you are.',
+  'Your media made it safely to the finish.',
+  'Ready to save and enjoy.',
+  'Your file is waiting in the download button.',
+  'All prepared — take it from here.',
+  'Your media is ready for your library.',
+  'Done. Your download is ready.',
+  'The wait is over — your file is ready.',
+  'Your chosen version is ready to save.',
+  'A little link, a file all yours.',
+  'Your media is ready to go wherever you do.',
+  'Complete and ready for your device.',
+  'Your download is ready for the road.',
+];
+let lastCompletionMessageIndex = -1;
+
 export const ActiveJobModal: React.FC = () => {
   const {
     activeJob,
@@ -28,13 +56,68 @@ export const ActiveJobModal: React.FC = () => {
     t,
   } = useApp();
   const [isRequestingDownload, setIsRequestingDownload] = useState(false);
+  const [readyMessage, setReadyMessage] = useState('');
+  const celebratedJobId = useRef<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const setJobModalOpenRef = useRef(setJobModalOpen);
+  setJobModalOpenRef.current = setJobModalOpen;
+
+  useEffect(() => {
+    if (!activeJob || activeJob.status !== 'READY') {
+      if (activeJob?.id !== celebratedJobId.current) setReadyMessage('');
+      return;
+    }
+    if (celebratedJobId.current === activeJob.id) return;
+    celebratedJobId.current = activeJob.id;
+    let nextIndex = Math.floor(Math.random() * completionMessages.length);
+    if (completionMessages.length > 1 && nextIndex === lastCompletionMessageIndex) {
+      nextIndex = (nextIndex + 1 + Math.floor(Math.random() * (completionMessages.length - 1))) % completionMessages.length;
+    }
+    lastCompletionMessageIndex = nextIndex;
+    setReadyMessage(completionMessages[nextIndex]);
+  }, [activeJob?.id, activeJob?.status]);
+
+  useEffect(() => {
+    if (!isJobModalOpen || !activeJob) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const focusable = () => dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    dialog?.querySelector<HTMLElement>('#close-job-modal-btn')?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setJobModalOpenRef.current(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      if (!items?.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [isJobModalOpen, activeJob?.id]);
 
   if (!isJobModalOpen || !activeJob) return null;
 
   const isReady = activeJob.status === 'READY';
   const isCancelled = activeJob.status === 'CANCELLED';
   const isFailed = activeJob.status === 'FAILED';
-  const isProcessing = !isReady && !isCancelled && !isFailed;
+  const isExpired = activeJob.status === 'EXPIRED';
+  const isProcessing = !isReady && !isCancelled && !isFailed && !isExpired;
 
   const handleTrySample = (sampleUrl: string, sampleName: string) => {
     setJobModalOpen(false);
@@ -97,11 +180,12 @@ export const ActiveJobModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm vf-fade-in">
-      <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 sm:p-7 relative overflow-hidden vf-scale-in">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="active-job-title" data-status={isReady ? 'ready' : isFailed ? 'failed' : undefined} className="vf-job-dialog w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 sm:p-7 relative overflow-hidden vf-scale-in">
         {/* Close Modal Button */}
         <button
           id="close-job-modal-btn"
           onClick={() => setJobModalOpen(false)}
+          aria-label="Close download status"
           className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 vf-btn-tactile"
         >
           <X className="w-5 h-5" />
@@ -139,13 +223,18 @@ export const ActiveJobModal: React.FC = () => {
             >
               {activeJob.status}
             </span>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-1">
-              {isReady ? 'Media File Ready!' : isProcessing ? 'Processing Media Stream' : 'Job Status Notice'}
+            <h3 id="active-job-title" className="text-lg font-bold text-slate-900 dark:text-white mt-1">
+              {isReady ? 'Media file ready' : isExpired ? 'Download link expired' : isProcessing ? 'Preparing your media' : isCancelled ? 'Download cancelled' : 'Media could not be prepared'}
             </h3>
           </div>
         </div>
 
         {/* Media Snippet */}
+        {isReady && readyMessage && (
+          <p className="vf-ready-message" role="status" aria-live="polite" key={activeJob.id}>
+            <Sparkles aria-hidden="true" size={15} /> {readyMessage}
+          </p>
+        )}
         <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-center gap-3 mb-5">
           {activeJob.thumbnailUrl ? (
             <img
@@ -180,31 +269,37 @@ export const ActiveJobModal: React.FC = () => {
         </div>
 
         {/* Progress Bar & Status Text */}
-        <div className="space-y-2 mb-6">
+        <div className="vf-job-progress space-y-2 mb-6" role="group" aria-label="Download job progress">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
             <span className="flex items-center gap-1.5">
               {isProcessing && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />}
-              {activeJob.stepMessage}
+              <span role={isProcessing ? 'status' : undefined} aria-live={isProcessing ? 'polite' : undefined} aria-atomic={isProcessing ? 'true' : undefined}>
+                {activeJob.stepMessage || (isReady ? 'Your file is ready to save.' : isExpired ? 'Create a new job to prepare another download.' : activeJob.status)}
+              </span>
             </span>
-            <span className="font-mono">{activeJob.progress}%</span>
+            {Number.isFinite(activeJob.progress) && <span className="font-mono">{Math.min(100, Math.max(0, activeJob.progress))}%</span>}
           </div>
 
-          <div className="w-full h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden relative">
+          <div className="vf-progress-track w-full h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden relative" role="progressbar" aria-label="Media processing progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number.isFinite(activeJob.progress) ? Math.min(100, Math.max(0, activeJob.progress)) : undefined} aria-valuetext={Number.isFinite(activeJob.progress) ? `${Math.min(100, Math.max(0, activeJob.progress))}%` : 'In progress'}>
             <div
-              className={`h-full transition-all duration-300 rounded-full ${
+              className={`vf-progress-fill h-full transition-all duration-300 rounded-full ${!Number.isFinite(activeJob.progress) && isProcessing ? 'vf-progress-indeterminate' : ''} ${
                 isReady
                   ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
                   : isProcessing
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-500'
                   : 'bg-rose-500'
               }`}
-              style={{ width: `${Math.min(100, Math.max(5, activeJob.progress))}%` }}
+              style={{ width: `${Math.min(100, Math.max(0, activeJob.progress || 0))}%` }}
             />
           </div>
         </div>
 
-        {/* Multi-step execution breakdown / Error Guidance */}
-        {isFailed ? (
+        {/* Real job state and error guidance */}
+        {isExpired ? (
+          <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 text-sm text-amber-900 dark:text-amber-200 mb-4">
+            This job has expired. Close this window and analyze the link again to create a fresh download.
+          </div>
+        ) : isFailed ? (
           <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 text-xs text-rose-800 dark:text-rose-300 mb-4 space-y-3">
             <div className="flex items-start gap-2.5">
               <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
@@ -275,20 +370,25 @@ export const ActiveJobModal: React.FC = () => {
               </div>
             </div>
           </div>
-        ) : (
+        ) : isProcessing ? (
           <div className="space-y-2 mb-4 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-4">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${activeJob.progress >= 20 ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`} />
-              <span>1. Demuxing input stream container & stream headers</span>
+            <div className="vf-job-stage-flow" aria-label={`Current job stage: ${activeJob.status.toLowerCase()}`}>
+              {(['QUEUED', 'ANALYZING', 'PROCESSING'] as const).map((stage, index) => {
+                const currentIndex = activeJob.status === 'QUEUED' ? 0 : activeJob.status === 'ANALYZING' ? 1 : 2;
+                const isPast = index < currentIndex;
+                const isCurrent = index === currentIndex;
+                return <span key={stage} className={`vf-job-stage ${isPast ? 'is-complete' : ''} ${isCurrent ? 'is-active' : ''}`} aria-current={isCurrent ? 'step' : undefined}>{stage === 'QUEUED' ? 'Queued' : stage === 'ANALYZING' ? 'Analyzing source' : 'Preparing download'}</span>;
+              })}
             </div>
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${activeJob.progress >= 50 ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`} />
-              <span>2. Transcoding audio/video codecs ({activeJob.selectedQuality})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${activeJob.progress >= 80 ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`} />
-              <span>3. Lossless moov atom packaging & temporary signed token generation</span>
-            </div>
+          </div>
+        ) : null}
+
+        {isReady && (
+          <div className="vf-job-stage-flow is-ready" aria-label="Download ready">
+            <span className="vf-job-stage is-complete">Queued</span>
+            <span className="vf-job-stage is-complete">Analyzing source</span>
+            <span className="vf-job-stage is-complete">Preparing download</span>
+            <span className="vf-job-stage is-active">Ready</span>
           </div>
         )}
 
@@ -328,7 +428,7 @@ export const ActiveJobModal: React.FC = () => {
             </button>
           )}
 
-          {(isCancelled || isFailed) && (
+          {(isCancelled || isFailed || isExpired) && (
             <button
               onClick={() => setJobModalOpen(false)}
               className="px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-300 vf-btn-tactile"

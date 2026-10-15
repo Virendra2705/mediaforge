@@ -20,17 +20,17 @@ export const Footer: React.FC = () => {
   };
 
   return (
-    <footer className="w-full border-t border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl text-slate-600 dark:text-slate-400 text-sm transition-colors duration-200">
+    <footer className="vf-site-footer w-full text-sm transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-12">
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-6 sm:gap-8 lg:gap-12">
           {/* Col 1: Brand & Compliance mission */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="col-span-2 lg:col-span-2 space-y-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center shadow-sm">
-                <div className="w-4 h-4 bg-white rounded-sm transform rotate-45" />
+              <div className="vf-brand-mark w-8 h-8 rounded-lg flex items-center justify-center shadow-sm">
+                <div className="vf-brand-glyph vf-brand-glyph-small" />
               </div>
-              <span className="text-lg font-bold text-slate-900 dark:text-white">
-                Video<span className="text-indigo-600 dark:text-indigo-400">Fetch</span>
+              <span className="vf-brand-wordmark text-lg font-bold">
+                Video<span>Fetch</span>
               </span>
             </div>
 
@@ -39,7 +39,7 @@ export const Footer: React.FC = () => {
             </p>
 
             {/* Strict Compliance Notice Banner */}
-            <div className="p-3.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/60 text-xs text-amber-900 dark:text-amber-300 flex items-start gap-2.5">
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-900/60 text-xs text-amber-950 dark:text-amber-300 flex items-start gap-2.5">
               <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold block mb-0.5">Authorized Use Policy</span>
@@ -266,9 +266,9 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* Bottom Bar */}
-        <div className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
+        <div className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
           <p>© {new Date().getFullYear()} VideoFetch Platform. {t.footerRights}</p>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap justify-center sm:justify-end gap-x-4 gap-y-1">
             <button onClick={() => handleNav('/about')} className="hover:underline">About</button>
             <button onClick={() => handleNav('/privacy-policy')} className="hover:underline">Privacy</button>
             <button onClick={() => handleNav('/terms')} className="hover:underline">Terms</button>

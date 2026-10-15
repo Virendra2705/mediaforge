@@ -1,197 +1,133 @@
-import React from 'react';
-import {
-  Zap,
-  ShieldCheck,
-  Cpu,
-  Layers,
-  Sparkles,
-  Music,
-  Video,
-  FileText,
-  Scissors,
-  CheckCircle2,
-  Lock,
-  ArrowRight,
-  HelpCircle,
-} from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { ArrowDownToLine, AudioLines, Captions, Check, ChevronRight, Clapperboard, LockKeyhole, Scissors, Sparkles, Video, WandSparkles } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { UrlInputBar } from '../components/UrlInputBar';
 import { MediaResultCard } from '../components/MediaResultCard';
 import { AdContainer } from '../components/ads/AdContainer';
+import { AnimatedMediaIcon } from '../components/AnimatedMediaIcon';
+import { MediaWorkflowAnimation } from '../components/MediaWorkflowAnimation';
+
+const capabilities = [
+  { icon: Video, title: 'Video, your way', text: 'Choose from the video formats and resolutions available for your link.' },
+  { icon: AudioLines, title: 'Audio, cleanly extracted', text: 'Save an available audio stream in the format offered by its source.' },
+  { icon: Captions, title: 'Captions included', text: 'When captions are available, choose a language and export format.' },
+  { icon: Scissors, title: 'Trim the moment', text: 'Set a start and end point to prepare a shorter clip.' },
+];
 
 export const HomeView: React.FC = () => {
-  const { setRoute, metadata, t } = useApp();
+  const { setRoute } = useApp();
+  const homeRef = useRef<HTMLDivElement>(null);
 
-  const features = [
-    {
-      icon: <Zap className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />,
-      title: 'Real-Time Stream Analysis',
-      desc: 'Compliant oEmbed & direct stream inspects media resolution, audio bitrates, and container codecs in milliseconds.',
-    },
-    {
-      icon: <Music className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
-      title: 'Studio 320 kbps MP3 Audio',
-      desc: 'Lossless audio demuxing with high-fidelity LAME MP3 conversion, ID3 tags, and loudness normalization.',
-    },
-    {
-      icon: <Video className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />,
-      title: 'Pristine 1080p & 4K MP4',
-      desc: 'Direct container remuxing preserving 60 FPS visual smoothness without quality degradation.',
-    },
-    {
-      icon: <Scissors className="w-5 h-5 text-violet-600 dark:text-violet-400" />,
-      title: 'Accurate Video Trimmer',
-      desc: 'Scrub timelines, preview keyframes, and extract custom audio or video clips without re-encoding delays.',
-    },
-    {
-      icon: <FileText className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />,
-      title: 'Subtitle & Captions Engine',
-      desc: 'Extract multi-language SRT, WebVTT, and TXT transcripts for research, translation, and accessibility.',
-    },
-    {
-      icon: <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400" />,
-      title: 'Private & Auto-Expiring',
-      desc: 'No tracking. Short-lived signed download links automatically expire after 15 minutes with zero persistent storage of user files.',
-    },
-  ];
+  useEffect(() => {
+    const root = homeRef.current;
+    if (!root) return;
+    const revealItems = root.querySelectorAll<HTMLElement>('[data-reveal-on-scroll]');
+    if (!('IntersectionObserver' in window)) {
+      revealItems.forEach(item => item.classList.add('is-visible'));
+      return;
+    }
+    try {
+      const observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('is-visible');
+          observer.unobserve(entry.target);
+        });
+      }, { threshold: 0.08, rootMargin: '0px 0px -24px 0px' });
+      root.classList.add('vf-reveal-ready');
+      revealItems.forEach(item => observer.observe(item));
+      return () => {
+        observer.disconnect();
+        root.classList.remove('vf-reveal-ready');
+      };
+    } catch {
+      root.classList.remove('vf-reveal-ready');
+      revealItems.forEach(item => item.classList.add('is-visible'));
+    }
+  }, []);
 
   return (
-    <div className="w-full pb-20">
-      {/* Hero Section with subtle geometric atmosphere */}
-      <section className="relative pt-12 pb-14 px-4 sm:px-6 lg:px-8 overflow-hidden">
-        {/* Subtle decorative glow */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-indigo-500/5 dark:bg-indigo-600/10 blur-[120px] rounded-full pointer-events-none" />
-
-        <div className="relative max-w-5xl mx-auto text-center">
-          {/* Calm Ambient Kicker */}
-          <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-wider uppercase text-indigo-600 dark:text-indigo-400 mb-4 vf-fade-in">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Fast, Compliant, &amp; Accessible Media Tooling</span>
+    <div className="vf-home" ref={homeRef}>
+      <section className="vf-hero" aria-labelledby="home-title">
+        <div className="vf-hero-grid" aria-hidden="true" />
+        <div className="vf-hero-orbit vf-hero-orbit-one" aria-hidden="true" />
+        <div className="vf-hero-orbit vf-hero-orbit-two" aria-hidden="true" />
+        <div className="vf-media-stage" aria-hidden="true">
+          <AnimatedMediaIcon kind="video" label="MP4 video" badge="MP4" className="vf-media-video" delay={0} variant={1} />
+          <AnimatedMediaIcon kind="audio" label="Audio file" badge="AUDIO" className="vf-media-audio" delay={0.12} variant={2} />
+          <AnimatedMediaIcon kind="image" label="Image file" badge="IMAGE" className="vf-media-image" delay={0.24} variant={3} />
+          <AnimatedMediaIcon kind="play" label="Play media" className="vf-media-play" delay={0.36} variant={2} />
+          <AnimatedMediaIcon kind="music" label="MP3 audio" badge="MP3" className="vf-media-music" delay={0.48} variant={1} />
+          <AnimatedMediaIcon kind="format" label="WebM video" badge="WEBM" className="vf-media-format" delay={0.6} variant={3} />
+        </div>
+        <div className="vf-hero-inner">
+          <div className="vf-hero-copy vf-reveal vf-reveal-1">
+            <div className="vf-eyebrow"><span className="vf-live-dot" /> Your personal media workspace</div>
+            <h1 id="home-title">Good media<br /><span>stays with you.</span></h1>
+            <p>Bring a link. Choose the version you need. VideoFetch handles the rest.</p>
           </div>
-
-          {/* Heading */}
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.15] mb-4 vf-slide-up">
-            {t.heroHeading}
-          </h1>
-
-          {/* Subtitle */}
-          <p className="text-base sm:text-lg lg:text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed mb-8 vf-slide-up">
-            {t.heroSubtitle}
-          </p>
-
-          {/* Main URL Input Form */}
-          <div className="vf-slide-up">
+          <div className="vf-downloader vf-reveal vf-reveal-2">
+            <div className="vf-downloader-topline"><span><WandSparkles size={15} /> Start with a link</span><span className="vf-private"><LockKeyhole size={13} /> Private by design</span></div>
             <UrlInputBar />
+            <div className="vf-supported-note"><span>Works with supported public media links</span><span className="vf-note-separator" /><span>Use content you own or have permission to save</span></div>
           </div>
+          <MediaWorkflowAnimation />
+          <div className="vf-hero-foot vf-reveal vf-reveal-3">
+            <span><Check size={14} /> No account required to get started</span>
+            <span><Check size={14} /> Quality options from the source</span>
+            <span><Check size={14} /> Clear, real-time job status</span>
+          </div>
+          <div className="vf-scroll-cue" aria-hidden="true"><span /> Explore the workspace</div>
         </div>
       </section>
 
-      {/* Result Card Section (Rendered when metadata is active) */}
-      <section className="px-4 sm:px-6 lg:px-8">
+      <section className="vf-results-section" aria-label="Media analysis results">
         <MediaResultCard />
       </section>
 
-      {/* Receptive Ad Unit (Non-intrusive placement below tool results) */}
       <AdContainer format="horizontal" minHeight={90} ariaLabel="Sponsored Content" />
 
-      {/* Features Showcase Grid */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 pt-12 border-t border-slate-200/60 dark:border-slate-800/60">
-        <div className="text-center max-w-2xl mx-auto mb-12">
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mb-3">
-            Designed for Creators, Educators &amp; Archivers
-          </h2>
-          <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400">
-            A reliable, clean processing architecture built for permissible audio extraction, clipping, and multi-format conversion.
-          </p>
+      <section className="vf-capabilities" aria-labelledby="capabilities-title">
+        <div className="vf-section-heading vf-scroll-reveal" data-reveal-on-scroll>
+          <div className="vf-eyebrow"><Sparkles size={14} /> A considered set of tools</div>
+          <h2 id="capabilities-title">Everything in its right place.</h2>
+          <p>From a single link to a file ready for your library.</p>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {features.map((feat, idx) => (
-            <div
-              key={idx}
-              className="p-6 rounded-2xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/80 dark:border-slate-800/80 shadow-sm vf-card-hover"
-            >
-              <div className="w-10 h-10 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 flex items-center justify-center mb-4 transition-transform group-hover:scale-105">
-                {feat.icon}
-              </div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">
-                {feat.title}
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                {feat.desc}
-              </p>
-            </div>
+        <div className="vf-capability-grid">
+          {capabilities.map(({ icon: Icon, title, text }, index) => (
+            <article className="vf-capability vf-scroll-reveal" data-reveal-on-scroll key={title} style={{ transitionDelay: `${index * 55}ms` }}>
+              <span className="vf-capability-icon"><Icon size={19} strokeWidth={1.7} /></span>
+              <h3>{title}</h3>
+              <p>{text}</p>
+              <span className="vf-capability-line" aria-hidden="true" />
+            </article>
           ))}
         </div>
       </section>
 
-      {/* Mid-Content Responsive Ad Unit */}
       <AdContainer format="auto" minHeight={120} ariaLabel="Sponsored Content" />
 
-      {/* Trust & Legal Compliance Highlight */}
-      <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-16">
-        <div className="p-6 sm:p-8 rounded-2xl bg-white/75 dark:bg-slate-900/75 backdrop-blur-lg border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 vf-card-hover">
-          <div className="space-y-2 text-center md:text-left">
-            <div className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-sm">
-              <ShieldCheck className="w-5 h-5" />
-              <span>Strict Copyright &amp; Terms Compliance</span>
-            </div>
-            <h3 className="text-xl font-extrabold text-slate-900 dark:text-white">
-              Respect for Creators &amp; Content Rights
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-xl">
-              VideoFetch never bypasses DRM, passwords, paywalls, or private authorizations. Our service processes publicly permissible streams, Creative Commons media, and user-owned content.
-            </p>
+      <section className="vf-rights-wrap">
+        <div className="vf-rights vf-scroll-reveal" data-reveal-on-scroll>
+          <div className="vf-rights-mark"><Clapperboard size={22} /></div>
+          <div className="vf-rights-copy">
+            <div className="vf-eyebrow">Made for mindful saving</div>
+            <h2>Respect the people behind the work.</h2>
+            <p>Only process public media you own, have permission to use, or that is otherwise permitted. VideoFetch does not bypass DRM, paywalls, or private access controls.</p>
           </div>
-
-          <button
-            onClick={() => setRoute('/dmca')}
-            className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white shadow-sm shrink-0 flex items-center gap-2 vf-btn-tactile"
-          >
-            <span>DMCA Complaint</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <button onClick={() => setRoute('/dmca')} className="vf-secondary-link">Copyright policy <ChevronRight size={16} /></button>
         </div>
       </section>
 
-      {/* Quick FAQ Highlights */}
-      <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 mt-20">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white mb-2">
-            Frequently Asked Questions
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500">
-            Everything you need to know about formats, compliance, and processing.
-          </p>
+      <section className="vf-faq" aria-labelledby="faq-title">
+        <div className="vf-section-heading vf-scroll-reveal" data-reveal-on-scroll>
+          <div className="vf-eyebrow"><ArrowDownToLine size={14} /> Before you begin</div>
+          <h2 id="faq-title">A few useful details.</h2>
         </div>
-
-        <div className="space-y-3">
-          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-            <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">
-              What media can I process using VideoFetch?
-            </h4>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              You can process videos and audio files that you own, content published under Creative Commons or Public Domain licenses, and media where you have explicit permission from the copyright owner.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-            <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">
-              How long are download links valid?
-            </h4>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Signed download tokens expire automatically after 15 minutes. This ensures temporary files are cleaned up from workers to maintain security and server hygiene.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-            <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">
-              Is MP3 320 kbps real stereo fidelity?
-            </h4>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Yes, when the source audio contains high-resolution frequency data, our transcoding pipeline encodes at the full 320 kbps constant bitrate with 44.1/48 kHz sample rates and ID3 metadata preservation.
-            </p>
-          </div>
+        <div className="vf-faq-grid">
+          <details className="vf-faq-item vf-scroll-reveal" data-reveal-on-scroll><summary>Which media links work?</summary><p>VideoFetch supports links from its available providers. Paste your link to check whether it can be analyzed.</p></details>
+          <details className="vf-faq-item vf-scroll-reveal" data-reveal-on-scroll><summary>How do I choose quality?</summary><p>After analysis, VideoFetch shows the formats and qualities available from that source. Select the one that fits your needs.</p></details>
+          <details className="vf-faq-item vf-scroll-reveal" data-reveal-on-scroll><summary>How long is my download available?</summary><p>Download links are temporary. The job window shows the current status and lets you save the file when it is ready.</p></details>
         </div>
       </section>
     </div>

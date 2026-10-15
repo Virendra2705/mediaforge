@@ -46,9 +46,9 @@ export const DashboardView: React.FC = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="vf-dashboard max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* User Header Profile Card */}
-      <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-r from-blue-900/15 via-indigo-900/10 to-transparent border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+      <div className="vf-dashboard-profile p-6 sm:p-8 rounded-2xl bg-gradient-to-r from-blue-900/15 via-indigo-900/10 to-transparent border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold text-2xl shadow-md">
             U
@@ -157,8 +157,8 @@ export const DashboardView: React.FC = () => {
       </div>
 
       {/* Download History Table */}
-      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+      <div className="vf-dashboard-history rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">
               Recent Media Conversions
@@ -232,7 +232,7 @@ export const DashboardView: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                <div className="vf-dashboard-history-actions flex items-center gap-2 shrink-0 self-end sm:self-auto">
                   <button
                     onClick={() => handleCopyLink(item.id, item.downloadUrl)}
                     className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { AtmosphereProvider } from './context/AtmosphereContext';
 import { AtmosphericBackground } from './components/AtmosphericBackground';
@@ -9,41 +9,47 @@ import { ActiveJobModal } from './components/ActiveJobModal';
 import { AuthModal } from './components/AuthModal';
 import { ToastContainer, CookieBanner } from './components/ToastAndCookie';
 import { HomeView } from './views/HomeView';
-import {
-  YoutubeDownloaderView,
-  Mp3ConverterView,
-  Mp4DownloaderView,
-  ThumbnailDownloaderView,
-  SubtitleDownloaderView,
-  VideoTrimmerView,
-} from './views/ToolViews';
-import {
-  SupportedPlatformsView,
-  HowItWorksView,
-  FaqView,
-} from './views/InfoViews';
-import { BlogListView, BlogPostView } from './views/BlogViews';
-import { DmcaView, CopyrightView, TermsView, PrivacyView, SecurityView } from './views/LegalViews';
-import { AboutView, ContactView } from './views/AboutContactViews';
-import { StatusView, ChangelogView } from './views/StatusChangelogViews';
-import { DashboardView } from './views/DashboardView';
-import { AdminView } from './views/AdminView';
-import {
-  UniversalVideoDownloaderView,
-  FourKDownloaderView,
-  AudioDownloaderView,
-  VideoConverterView,
-  YouTubeDownloaderView,
-  YouTubeShortsDownloaderView,
-  TikTokDownloaderView,
-  InstagramDownloaderView,
-  XTwitterDownloaderView,
-  VimeoDownloaderView,
-  PinterestDownloaderView,
-  BilibiliDownloaderView,
-} from './views/SeoLandingViews';
 import { NotFoundView } from './views/NotFoundView';
 import { ShieldAlert, KeyRound } from 'lucide-react';
+
+type ViewModule = Record<string, React.ComponentType<any>>;
+const lazyView = <T extends ViewModule>(loader: () => Promise<T>, exportName: keyof T) =>
+  lazy(async () => ({ default: (await loader())[exportName] }));
+
+const YoutubeDownloaderView = lazyView(() => import('./views/ToolViews'), 'YoutubeDownloaderView');
+const Mp3ConverterView = lazyView(() => import('./views/ToolViews'), 'Mp3ConverterView');
+const Mp4DownloaderView = lazyView(() => import('./views/ToolViews'), 'Mp4DownloaderView');
+const ThumbnailDownloaderView = lazyView(() => import('./views/ToolViews'), 'ThumbnailDownloaderView');
+const SubtitleDownloaderView = lazyView(() => import('./views/ToolViews'), 'SubtitleDownloaderView');
+const VideoTrimmerView = lazyView(() => import('./views/ToolViews'), 'VideoTrimmerView');
+const SupportedPlatformsView = lazyView(() => import('./views/InfoViews'), 'SupportedPlatformsView');
+const HowItWorksView = lazyView(() => import('./views/InfoViews'), 'HowItWorksView');
+const FaqView = lazyView(() => import('./views/InfoViews'), 'FaqView');
+const BlogListView = lazyView(() => import('./views/BlogViews'), 'BlogListView');
+const BlogPostView = lazyView(() => import('./views/BlogViews'), 'BlogPostView');
+const DmcaView = lazyView(() => import('./views/LegalViews'), 'DmcaView');
+const CopyrightView = lazyView(() => import('./views/LegalViews'), 'CopyrightView');
+const TermsView = lazyView(() => import('./views/LegalViews'), 'TermsView');
+const PrivacyView = lazyView(() => import('./views/LegalViews'), 'PrivacyView');
+const SecurityView = lazyView(() => import('./views/LegalViews'), 'SecurityView');
+const AboutView = lazyView(() => import('./views/AboutContactViews'), 'AboutView');
+const ContactView = lazyView(() => import('./views/AboutContactViews'), 'ContactView');
+const StatusView = lazyView(() => import('./views/StatusChangelogViews'), 'StatusView');
+const ChangelogView = lazyView(() => import('./views/StatusChangelogViews'), 'ChangelogView');
+const DashboardView = lazy(() => import('./views/DashboardView').then(module => ({ default: module.DashboardView })));
+const AdminView = lazy(() => import('./views/AdminView').then(module => ({ default: module.AdminView })));
+const UniversalVideoDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'UniversalVideoDownloaderView');
+const FourKDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'FourKDownloaderView');
+const AudioDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'AudioDownloaderView');
+const VideoConverterView = lazyView(() => import('./views/SeoLandingViews'), 'VideoConverterView');
+const YouTubeDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'YouTubeDownloaderView');
+const YouTubeShortsDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'YouTubeShortsDownloaderView');
+const TikTokDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'TikTokDownloaderView');
+const InstagramDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'InstagramDownloaderView');
+const XTwitterDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'XTwitterDownloaderView');
+const VimeoDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'VimeoDownloaderView');
+const PinterestDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'PinterestDownloaderView');
+const BilibiliDownloaderView = lazyView(() => import('./views/SeoLandingViews'), 'BilibiliDownloaderView');
 
 const AdminGate: React.FC = () => {
   const { setAuthModalOpen, setRoute } = useApp();
@@ -155,13 +161,15 @@ const MainRouter: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-500 selection:text-white transition-colors duration-300 relative">
+    <div className="vf-app-shell min-h-screen flex flex-col text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-500 selection:text-white transition-colors duration-300 relative">
       <AdSenseScript />
       <AtmosphericBackground />
       <Header />
       <main className="flex-1 w-full relative z-0">
         <div key={route} className="vf-slide-up w-full">
-          {renderCurrentView()}
+          <Suspense fallback={<div className="vf-route-loading" role="status"><span className="vf-route-spinner" />Loading page…</div>}>
+            {renderCurrentView()}
+          </Suspense>
         </div>
       </main>
       <Footer />

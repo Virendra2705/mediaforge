@@ -51,21 +51,22 @@ export const Header: React.FC = () => {
   const isActive = (r: AppRoute) => route === r;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl transition-all duration-300">
+    <header className="vf-site-header sticky top-0 z-50 w-full transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand Logo */}
         <div className="flex items-center gap-3">
           <button
             id="brand-logo-btn"
             onClick={() => handleNav('/')}
-            className="flex items-center gap-2.5 text-left group focus:outline-none"
+            aria-label="VideoFetch home"
+            className="flex items-center gap-2.5 text-left group focus-visible:outline-none"
           >
-            <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center shadow-sm group-hover:bg-indigo-700 transition-colors">
-              <div className="w-4 h-4 bg-white rounded-sm transform rotate-45" />
+            <div className="vf-brand-mark w-9 h-9 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
+              <div className="vf-brand-glyph" />
             </div>
             <div>
-              <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5">
-                Video<span className="text-indigo-600 dark:text-indigo-400">Fetch</span>
+              <span className="vf-brand-wordmark text-xl font-bold tracking-tight flex items-center gap-1.5">
+                Video<span>Fetch</span>
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                   v2.4
                 </span>
@@ -322,6 +323,7 @@ export const Header: React.FC = () => {
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
           >
             {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
           </button>
@@ -330,6 +332,8 @@ export const Header: React.FC = () => {
           <button
             id="mobile-menu-btn"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={isMobileMenuOpen}
             className="lg:hidden p-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

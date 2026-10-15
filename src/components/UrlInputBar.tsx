@@ -2,7 +2,9 @@ import React from 'react';
 import {
   Search,
   ClipboardPaste,
+  Check,
   X,
+  Link2,
   Sparkles,
   Loader2,
   AlertCircle,
@@ -32,37 +34,109 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
     t,
     addToast,
   } = useApp();
+  const [pasteConfirmed, setPasteConfirmed] = React.useState(false);
+  const [pasteReceiving, setPasteReceiving] = React.useState(false);
+  const [inputJustUpdated, setInputJustUpdated] = React.useState(false);
+  const [analysisSucceeded, setAnalysisSucceeded] = React.useState(false);
+  const [urlFormatError, setUrlFormatError] = React.useState('');
+  const pasteTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const updateTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const successTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => () => {
+    if (pasteTimer.current) clearTimeout(pasteTimer.current);
+    if (updateTimer.current) clearTimeout(updateTimer.current);
+    if (successTimer.current) clearTimeout(successTimer.current);
+  }, []);
+
+  const isHttpUrl = (value: string) => {
+    try {
+      const parsed = new URL(value.trim());
+      return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !!parsed.hostname;
+    } catch {
+      return false;
+    }
+  };
+
+  const showInputArrival = () => {
+    setInputJustUpdated(true);
+    if (updateTimer.current) clearTimeout(updateTimer.current);
+    updateTimer.current = setTimeout(() => setInputJustUpdated(false), 680);
+  };
+
+  const runAnalysis = async (url: string) => {
+    setAnalysisSucceeded(false);
+    const succeeded = await analyzeUrl(url);
+    if (succeeded) {
+      setAnalysisSucceeded(true);
+      if (successTimer.current) clearTimeout(successTimer.current);
+      successTimer.current = setTimeout(() => setAnalysisSucceeded(false), 1300);
+    }
+  };
 
   const handlePaste = async () => {
+    if (pasteTimer.current) clearTimeout(pasteTimer.current);
+    pasteTimer.current = null;
+    setPasteConfirmed(false);
+    setPasteReceiving(false);
+    if (!navigator.clipboard?.readText) {
+      addToast('error', 'Clipboard unavailable', 'Paste the link into the field using your keyboard.');
+      return;
+    }
     try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        setCurrentUrl(text);
-        addToast('info', 'Pasted from clipboard', text.substring(0, 40) + (text.length > 40 ? '...' : ''));
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text) {
+        addToast('info', 'Clipboard is empty', 'Copy a supported media link, then try again.');
+        return;
       }
-    } catch {
-      addToast('error', 'Clipboard access denied', 'Please paste the URL manually using Ctrl+V / Cmd+V.');
+      if (!isHttpUrl(text)) {
+        addToast('error', 'Clipboard does not contain a link', 'Copy a complete http or https media URL, or paste it into the field manually.');
+        return;
+      }
+      setCurrentUrl(text);
+      setUrlFormatError('');
+      setAnalysisSucceeded(false);
+      showInputArrival();
+      setPasteReceiving(true);
+      if (pasteTimer.current) clearTimeout(pasteTimer.current);
+      pasteTimer.current = setTimeout(() => {
+        setPasteReceiving(false);
+        setPasteConfirmed(true);
+        pasteTimer.current = setTimeout(() => setPasteConfirmed(false), 1480);
+      }, 220);
+      addToast('success', 'Link added — you’re ready', 'The URL is in the input field.');
+    } catch (error) {
+      const denied = error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
+      addToast('error', denied ? 'Clipboard permission denied' : 'Could not read clipboard', 'Paste the URL into the field using Ctrl+V / Cmd+V.');
     }
   };
 
   const handleClear = () => {
     setCurrentUrl('');
+    setUrlFormatError('');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUrl.trim()) return;
-    analyzeUrl(currentUrl);
+    if (!isHttpUrl(currentUrl)) {
+      setUrlFormatError('Enter a complete link starting with http:// or https://.');
+      document.getElementById('main-url-input')?.focus();
+      return;
+    }
+    setUrlFormatError('');
+    void runAnalysis(currentUrl);
   };
 
   const handleLoadSample = (sampleUrl: string, sampleName: string) => {
     setCurrentUrl(sampleUrl);
-    analyzeUrl(sampleUrl);
+    setUrlFormatError('');
+    void runAnalysis(sampleUrl);
     addToast('info', 'Loaded Sample Media', sampleName);
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto">
+    <div className="vf-url-form w-full max-w-4xl mx-auto">
       {/* Optional Custom Headings */}
       {customHeading && (
         <div className="text-center mb-6">
@@ -78,19 +152,27 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
       )}
 
       {/* Main Input Form Card */}
-      <form onSubmit={handleSubmit} className="relative group">
-        <div className="relative flex flex-col sm:flex-row items-stretch bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl rounded-2xl shadow-2xl shadow-slate-950/20 border border-slate-200/80 dark:border-slate-800/80 overflow-hidden p-1.5 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-200">
+      <form onSubmit={handleSubmit} className="relative group vf-url-form-shell">
+        <div className={`vf-url-control relative flex flex-col sm:flex-row items-stretch overflow-hidden p-1.5 ${inputJustUpdated ? 'vf-url-pasted' : ''} ${analyzeError || urlFormatError ? 'vf-url-invalid' : ''}`}>
           {/* Input field */}
           <div className="relative flex-1 w-full flex items-center px-2 sm:px-3 py-1">
-            <Search className="w-5 h-5 text-slate-400 dark:text-slate-500 mr-2 sm:mr-3 shrink-0 transition-colors group-focus-within:text-indigo-500" />
+            {currentUrl.trim() && isHttpUrl(currentUrl)
+              ? <Link2 aria-hidden="true" className="vf-url-search vf-url-valid-icon w-5 h-5 mr-2 sm:mr-3 shrink-0" />
+              : <Search aria-hidden="true" className="vf-url-search w-5 h-5 mr-2 sm:mr-3 shrink-0 transition-colors group-focus-within:text-indigo-500" />}
+            <label className="sr-only" htmlFor="main-url-input">Media URL</label>
             <input
               id="main-url-input"
+              name="mediaUrl"
               type="text"
+              inputMode="url"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
               value={currentUrl}
-              onChange={e => setCurrentUrl(e.target.value)}
-              placeholder={t.urlPlaceholder}
-              aria-label="Media URL input"
-              className="w-full py-2.5 text-sm sm:text-base bg-transparent text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-colors"
+              onChange={e => { setCurrentUrl(e.target.value); setUrlFormatError(''); setAnalysisSucceeded(false); }}
+              placeholder={t.urlPlaceholder || 'Paste a video or audio link…'}
+              aria-describedby={urlFormatError ? 'url-format-error' : analyzeError ? 'url-error' : 'url-help'}
+              className="vf-url-input w-full py-2.5 bg-transparent outline-none transition-colors"
             />
             {/* Clear Button */}
             {currentUrl && (
@@ -99,9 +181,10 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
                 id="clear-url-input-btn"
                 onClick={handleClear}
                 title={t.clearBtn}
+                aria-label="Clear URL"
                 className="p-1.5 mr-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 vf-btn-tactile"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4 vf-clear-icon" />
               </button>
             )}
             {/* Paste Button */}
@@ -110,9 +193,10 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
               id="paste-url-btn"
               onClick={handlePaste}
               title={t.pasteBtn}
-              className="flex items-center gap-1 px-3 py-1.5 mr-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 vf-btn-tactile shrink-0"
+              aria-label={t.pasteBtn}
+              className={`vf-paste-button flex items-center gap-1 px-3 py-1.5 mr-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 vf-btn-tactile shrink-0 ${pasteReceiving ? 'vf-paste-receiving' : ''} ${pasteConfirmed ? 'vf-paste-confirmed' : ''}`}
             >
-              <ClipboardPaste className="w-3.5 h-3.5" />
+              {pasteConfirmed ? <Check className="w-3.5 h-3.5 vf-feedback-check" /> : <ClipboardPaste className={`w-3.5 h-3.5 vf-clipboard-icon ${pasteReceiving ? 'is-receiving' : ''}`} />}
               <span className="hidden sm:inline">{t.pasteBtn}</span>
             </button>
           </div>
@@ -122,13 +206,16 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
             type="submit"
             id="analyze-submit-btn"
             disabled={isAnalyzing || !currentUrl.trim()}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold tracking-wide text-sm bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 shrink-0 vf-btn-tactile"
+            data-state={isAnalyzing ? 'analyzing' : analysisSucceeded ? 'success' : analyzeError || urlFormatError ? 'error' : 'idle'}
+            className="vf-submit w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold tracking-wide text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shrink-0 vf-btn-tactile"
           >
             {isAnalyzing ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>{t.analyzingBtn}</span>
+                <span>Analyzing link…</span>
               </>
+            ) : analysisSucceeded ? (
+              <><Check className="w-4 h-4 vf-feedback-check" /><span>Link analyzed</span></>
             ) : (
               <>
                 <Sparkles className="w-4 h-4 fill-current transition-transform group-hover:scale-110" />
@@ -140,14 +227,15 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
       </form>
 
       {/* Calm Secondary Actions Bar */}
-      <div className="mt-3.5 flex flex-wrap items-center justify-center gap-3 sm:gap-4 text-xs font-medium text-slate-500 dark:text-slate-400">
+      <div className="vf-url-utilities mt-3.5 flex flex-wrap items-center justify-center gap-3 sm:gap-4 text-xs font-medium">
         <button
+          aria-label="Paste URL from clipboard"
           type="button"
           onClick={handlePaste}
-          className="flex items-center gap-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 vf-btn-tactile transition-colors"
+          className={`vf-paste-button flex items-center gap-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 vf-btn-tactile transition-colors ${pasteReceiving ? 'vf-paste-receiving' : ''} ${pasteConfirmed ? 'vf-paste-confirmed' : ''}`}
         >
-          <ClipboardPaste className="w-3.5 h-3.5" />
-          <span>Paste Clipboard</span>
+          {pasteConfirmed ? <Check className="w-3.5 h-3.5 vf-feedback-check" /> : <ClipboardPaste className={`w-3.5 h-3.5 vf-clipboard-icon ${pasteReceiving ? 'is-receiving' : ''}`} />}
+          <span>{pasteConfirmed ? 'Link added' : 'Paste Clipboard'}</span>
         </button>
         {currentUrl && (
           <>
@@ -168,10 +256,18 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
           <span>Direct Stream Inspection</span>
         </div>
       </div>
+      {pasteConfirmed && <div className="vf-paste-confirmation" role="status" aria-live="polite">Link added — you’re ready.</div>}
 
-      {/* Error Alert Message with Subtle Shake */}
+      {urlFormatError && !analyzeError && (
+        <div id="url-format-error" role="alert" className="vf-url-error mt-4 p-4 rounded-xl text-sm flex items-start gap-3 vf-fade-in">
+          <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+          <div><div className="font-semibold mb-0.5">Check the link format</div><div>{urlFormatError}</div></div>
+        </div>
+      )}
+
+      {/* Server analysis feedback */}
       {analyzeError && (
-        <div className="mt-4 p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-sm text-rose-800 dark:text-rose-300 flex items-start gap-3 vf-shake vf-fade-in">
+        <div id="url-error" role="alert" className="vf-url-error mt-4 p-4 rounded-xl text-sm flex items-start gap-3 vf-fade-in">
           <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
           <div className="flex-1">
             <div className="font-semibold mb-0.5">Media Analysis Notice</div>
@@ -181,14 +277,14 @@ export const UrlInputBar: React.FC<UrlInputBarProps> = ({
       )}
 
       {/* Trust Notice Bar */}
-      <div className="mt-3.5 flex items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400 text-center px-2">
+      <div id="url-help" className="vf-url-trust mt-3.5 flex items-center justify-center gap-2 text-xs text-center px-2">
         <ShieldCheck className="w-4 h-4 text-blue-500 shrink-0" />
         <span>{t.trustNotice}</span>
       </div>
 
       {/* 1-Click Quick Sample Testing Links */}
       {!hideSamples && (
-        <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800/80">
+        <div className="vf-sample-links mt-6 pt-5">
           <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2.5 flex items-center gap-1.5 justify-center sm:justify-start">
             <PlayCircle className="w-3.5 h-3.5 text-blue-500" />
             <span>{t.sampleLinks}:</span>

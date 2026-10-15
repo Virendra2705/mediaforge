@@ -489,11 +489,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             }
           } catch { /* Download can be requested again from the job modal. */ }
           try {
-            confetti({
-              particleCount: 50,
-              spread: 60,
-              origin: { y: 0.7 },
-            });
+            const motionSetting = document.documentElement.dataset.vfMotion;
+            const reduceMotion = motionSetting === 'off' || motionSetting === 'reduced'
+              || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (!reduceMotion) {
+              confetti({ particleCount: 28, spread: 48, origin: { y: 0.7 } });
+            }
           } catch {
             // Ignore confetti errors
           }

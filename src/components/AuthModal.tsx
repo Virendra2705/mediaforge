@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ShieldCheck, UserCheck, Lock, X, ArrowRight, Loader2, KeyRound } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -8,6 +8,36 @@ export const AuthModal: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isAuthModalOpen) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    dialog?.querySelector<HTMLElement>('button, input')?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setAuthModalOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const items = dialog.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (!items.length) return;
+      if (event.shiftKey && document.activeElement === items[0]) {
+        event.preventDefault();
+        items[items.length - 1].focus();
+      } else if (!event.shiftKey && document.activeElement === items[items.length - 1]) {
+        event.preventDefault();
+        items[0].focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [isAuthModalOpen]);
 
   if (!isAuthModalOpen) return null;
 
@@ -38,7 +68,7 @@ export const AuthModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs vf-fade-in">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden vf-scale-in">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title" className="vf-job-dialog bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden vf-scale-in">
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -46,12 +76,13 @@ export const AuthModal: React.FC = () => {
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 dark:text-white text-base">VideoFetch Authentication</h3>
+              <h3 id="auth-dialog-title" className="font-bold text-slate-900 dark:text-white text-base">VideoFetch Authentication</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">Cryptographically verified session tokens</p>
             </div>
           </div>
           <button
             onClick={() => setAuthModalOpen(false)}
+            aria-label="Close sign in dialog"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 vf-btn-tactile"
           >
             <X className="w-5 h-5" />
@@ -152,11 +183,14 @@ export const AuthModal: React.FC = () => {
                 className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800"
               >
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  <label htmlFor="auth-email" className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
                     Email Address
                   </label>
                   <input
                     type="email"
+                    id="auth-email"
+                    name="email"
+                    autoComplete="username"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -166,11 +200,14 @@ export const AuthModal: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  <label htmlFor="auth-password" className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
                     Password
                   </label>
                   <input
                     type="password"
+                    id="auth-password"
+                    name="password"
+                    autoComplete="current-password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
