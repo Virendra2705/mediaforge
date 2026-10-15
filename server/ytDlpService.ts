@@ -128,23 +128,51 @@ export class YtDlpService {
     if (process.env.NODE_ENV === 'production') {
       const configuredPath = process.env.YTDLP_PATH?.trim();
       if (!configuredPath) {
+        console.error('[YtDlpService] Production yt-dlp validation failed.', {
+          configuredPath: configuredPath || null,
+          exists: false,
+          executable: false,
+          errorCode: 'YTDLP_PATH_UNSET',
+          errorMessage: 'YTDLP_PATH is not configured.',
+          stderr: '',
+        });
         throw new Error('YTDLP_PATH is required in production and must point to a pre-provisioned executable.');
       }
 
       let resolvedPath: string;
+      let exists = false;
+      let executable = false;
       try {
         const stat = fs.statSync(configuredPath);
+        exists = true;
         if (!stat.isFile()) throw new Error('Not a file.');
         fs.accessSync(configuredPath, fs.constants.X_OK);
+        executable = true;
         resolvedPath = fs.realpathSync(configuredPath);
-      } catch {
+      } catch (err: any) {
+        console.error('[YtDlpService] Production yt-dlp validation failed.', {
+          configuredPath,
+          exists,
+          executable,
+          errorCode: err?.code || 'INVALID_EXECUTABLE',
+          errorMessage: sanitizeLogMessage(err?.message || 'Configured path is not an executable file.'),
+          stderr: sanitizeLogMessage(String(err?.stderr || '')).slice(0, 2000),
+        });
         throw new Error('YTDLP_PATH must point to an existing executable file.');
       }
 
       try {
         const { stdout } = await execFileAsync(resolvedPath, ['--version'], { timeout: 5000 });
         if (!stdout.trim()) throw new Error('Empty version output.');
-      } catch {
+      } catch (err: any) {
+        console.error('[YtDlpService] Production yt-dlp validation failed.', {
+          configuredPath,
+          exists,
+          executable,
+          errorCode: err?.code || 'INVALID_YTDLP_OUTPUT',
+          errorMessage: sanitizeLogMessage(err?.message || 'yt-dlp --version returned no output.'),
+          stderr: sanitizeLogMessage(String(err?.stderr || '')).slice(0, 2000),
+        });
         throw new Error('YTDLP_PATH must point to an executable yt-dlp binary.');
       }
 
