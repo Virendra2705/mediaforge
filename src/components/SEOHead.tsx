@@ -57,7 +57,7 @@ export const SEOHead: React.FC<SEOHeadProps> = ({
     setMetaTag('name', 'description', description);
 
     // 4. Update Canonical Tag
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://videofetch.app';
+    const origin = 'https://videofetch-docker.onrender.com';
     const cleanPath = canonicalPath.startsWith('/') ? canonicalPath : `/${canonicalPath}`;
     const fullCanonicalUrl = `${origin}${cleanPath === '/' ? '' : cleanPath}`;
 

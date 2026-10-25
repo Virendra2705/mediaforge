@@ -377,7 +377,7 @@ class PostgresManager {
 
   // --- DMCA Reports ---
   public async saveDmcaReport(report: DmcaReport): Promise<void> {
-    if (!this.pool || !this.isConnected) return;
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
     try {
       await this.pool.query(
         `INSERT INTO dmca_reports (
@@ -406,6 +406,7 @@ class PostgresManager {
     } catch {
       this.markDisconnected();
       console.log('[PostgreSQL] Report persistence failed.');
+      throw new Error('Unable to persist DMCA report.');
     }
   }
 
@@ -437,7 +438,7 @@ class PostgresManager {
 
   // --- Contact Messages ---
   public async saveContactMessage(msg: ContactMessage): Promise<void> {
-    if (!this.pool || !this.isConnected) return;
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
     try {
       await this.pool.query(
         `INSERT INTO contact_messages (id, name, email, subject, message, status, created_at)
@@ -448,6 +449,33 @@ class PostgresManager {
     } catch {
       this.markDisconnected();
       console.log('[PostgreSQL] Contact message persistence failed.');
+      throw new Error('Unable to persist contact message.');
+    }
+  }
+
+  public async getContactMessages(limit: number, offset: number): Promise<ContactMessage[]> {
+    if (!this.pool || !this.isConnected) throw new Error('PostgreSQL is unavailable.');
+    try {
+      const res = await this.pool.query(
+        `SELECT id, name, email, subject, message, status, created_at
+         FROM contact_messages
+         ORDER BY created_at DESC, id DESC
+         LIMIT $1 OFFSET $2;`,
+        [limit, offset]
+      );
+      return res.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        subject: r.subject,
+        message: r.message,
+        status: r.status,
+        createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : new Date(r.created_at).toISOString(),
+      }));
+    } catch {
+      this.markDisconnected();
+      console.log('[PostgreSQL] Contact message retrieval failed.');
+      throw new Error('Unable to load contact messages.');
     }
   }
 

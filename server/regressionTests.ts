@@ -49,6 +49,9 @@ import { createAuthenticationRateLimiter, getTrustedClientAddress } from './auth
 import { getPostgresSslOptions, markPostgresUnavailable, sanitizePostgresConnectionString } from './postgres.js';
 import { initializePersistenceMode, resolvePersistenceMode } from './db.js';
 import { stripPersistedJobCapabilities } from '../src/utils/jobHistory.js';
+import { registerPublicSubmissionRoutes } from './publicSubmissionRoutes.js';
+import { postPublicSubmission } from '../src/utils/publicSubmissionClient.js';
+import { registerAdminContactRoutes } from './adminContactRoutes.js';
 
 // Test-only secret for regression tests. Never use this value in production.
 if (!process.env.AUTH_SECRET?.trim()) {
@@ -61,7 +64,225 @@ interface TestCase {
   run: () => Promise<{ passed: boolean; details?: string }>;
 }
 
+async function postJsonToLocalApp(app: express.Application, route: string, body: unknown) {
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as any).port}`;
+  try {
+    const response = await fetch(`${base}${route}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: response.status, body: await response.json() as Record<string, any> };
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
 const tests: TestCase[] = [
+  {
+    name: 'ADS.TXT: no unverified publisher placeholder is served',
+    run: async () => {
+      const adsTxt = fs.readFileSync(path.join(process.cwd(), 'public', 'ads.txt'), 'utf8');
+      assert.match(adsTxt, /No verified publisher record is included/);
+      assert.doesNotMatch(adsTxt, /^\s*google\.com\s*,\s*pub-/im);
+      return { passed: true, details: 'The unconfigured static ads.txt is truthful and contains no publisher seller record.' };
+    },
+  },
+  {
+    name: 'PUBLIC SUBMISSIONS: DMCA schema, durable acceptance, and failure handling',
+    run: async () => {
+      const persisted: any[] = [];
+      const makeApp = (saveDmcaReport: (report: any) => Promise<void> = async (report) => { persisted.push(report); }) => {
+        const app = express();
+        app.use(express.json());
+        registerPublicSubmissionRoutes(app, {
+          isPersistentStoreAvailable: () => true,
+          saveDmcaReport,
+          saveContactMessage: async () => {},
+          audit: () => {},
+          checkRateLimit: () => ({ allowed: true, resetInSeconds: 0 }),
+        });
+        return app;
+      };
+      const validNotice = {
+        complainantName: 'Rights Holder',
+        email: 'rights-holder@example.test',
+        targetUrl: 'https://media.example.test/item',
+        copyrightWorkDescription: 'A sufficiently detailed description of the work.',
+        ownershipProofDescription: 'I own the described work and can document ownership.',
+        reason: 'The identified use is not authorized.',
+        goodFaithStatement: true,
+        accuracyStatement: true,
+      };
+
+      const success = await postJsonToLocalApp(makeApp(), '/api/reports', validNotice);
+      assert.equal(success.status, 200);
+      assert.equal(success.body.success, true);
+      assert.match(success.body.data.reportId, /^dmca_/);
+      assert.match(success.body.data.message, /No removal has yet occurred/);
+      assert.equal(persisted.length, 1);
+
+      const missingDeclaration = { ...validNotice, accuracyStatement: undefined };
+      const invalid = await postJsonToLocalApp(makeApp(), '/api/reports', missingDeclaration);
+      assert.equal(invalid.status, 400);
+      assert.equal(invalid.body.success, false);
+
+      const failedPersistence = await postJsonToLocalApp(makeApp(async () => { throw new Error('storage failure'); }), '/api/reports', validNotice);
+      assert.equal(failedPersistence.status, 503);
+      assert.equal(failedPersistence.body.success, false);
+      return { passed: true, details: 'Valid notices are acknowledged only after persistence resolves; missing declarations and storage failures are rejected.' };
+    },
+  },
+  {
+    name: 'PUBLIC SUBMISSIONS: contact validation and accepted storage state',
+    run: async () => {
+      const saved: any[] = [];
+      const app = express();
+      app.use(express.json());
+      registerPublicSubmissionRoutes(app, {
+        isPersistentStoreAvailable: () => true,
+        saveDmcaReport: async () => {},
+        saveContactMessage: async (message) => { saved.push(message); },
+        audit: () => {},
+        checkRateLimit: () => ({ allowed: true, resetInSeconds: 0 }),
+      });
+      const valid = {
+        name: 'Example User',
+        email: 'user@example.test',
+        purpose: 'technical',
+        subject: 'Playback issue',
+        message: 'Details about the issue are included here.',
+      };
+      const success = await postJsonToLocalApp(app, '/api/contact', valid);
+      assert.equal(success.status, 200);
+      assert.equal(success.body.success, true);
+      assert.match(success.body.message, /stored for review/);
+      assert.equal(saved.length, 1);
+      assert.match(saved[0].subject, /^\[technical\]/);
+
+      const invalid = await postJsonToLocalApp(app, '/api/contact', { ...valid, email: 'not-an-email' });
+      assert.equal(invalid.status, 400);
+      assert.equal(invalid.body.success, false);
+
+      const unavailableApp = express();
+      unavailableApp.use(express.json());
+      registerPublicSubmissionRoutes(unavailableApp, {
+        isPersistentStoreAvailable: () => false,
+        saveDmcaReport: async () => {},
+        saveContactMessage: async () => {},
+        audit: () => {},
+        checkRateLimit: () => ({ allowed: true, resetInSeconds: 0 }),
+      });
+      const unavailable = await postJsonToLocalApp(unavailableApp, '/api/contact', valid);
+      assert.equal(unavailable.status, 503);
+      assert.equal(unavailable.body.success, false);
+      return { passed: true, details: 'Contact success follows stored acceptance; invalid data and unavailable persistent storage are reported without a false success.' };
+    },
+  },
+  {
+    name: 'PUBLIC SUBMISSIONS: client accepts only valid successful HTTP responses',
+    run: async () => {
+      const response = (ok: boolean, body: unknown): Response => ({
+        ok,
+        json: async () => body,
+      } as Response);
+      const mockFetch = (value: Response | Error): typeof fetch => (async () => {
+        if (value instanceof Error) throw value;
+        return value;
+      }) as typeof fetch;
+
+      assert.equal((await postPublicSubmission('/api/contact', {}, mockFetch(response(true, { success: true, message: 'stored' })))).success, true);
+      assert.equal((await postPublicSubmission('/api/contact', {}, mockFetch(response(false, { success: true })))).success, false);
+      assert.equal((await postPublicSubmission('/api/contact', {}, mockFetch(response(true, { success: true })))).success, false);
+      assert.equal((await postPublicSubmission('/api/contact', {}, mockFetch(new Error('network unavailable')))).success, false);
+      return { passed: true, details: 'HTTP failures and network errors cannot produce client success; valid server acknowledgments are accepted.' };
+    },
+  },
+  {
+    name: 'ADMIN CONTACTS: authenticated bounded retrieval and failure handling',
+    run: async () => {
+      const admin = { id: 'test-contact-admin', name: 'Fixture Admin', email: 'admin-contact@example.test', role: 'admin' as const, createdAt: new Date(0).toISOString(), downloadsCount: 0, tier: 'free' as const };
+      const ordinaryUser = { ...admin, id: 'test-contact-user', name: 'Fixture User', email: 'user-contact@example.test', role: 'user' as const };
+      db.users.set(admin.id, admin);
+      db.users.set(ordinaryUser.id, ordinaryUser);
+      const adminToken = createSessionToken({ id: admin.id, name: admin.name, email: admin.email, role: 'admin' });
+      const userToken = createSessionToken({ id: ordinaryUser.id, name: ordinaryUser.name, email: ordinaryUser.email, role: 'user' });
+      const expiredToken = createSessionToken({ id: admin.id, name: admin.name, email: admin.email, role: 'admin' }, -1);
+      const newest = { id: 'msg-b', name: 'Test Sender B', email: 'b@example.test', subject: '[general] B', message: 'Synthetic message B', status: 'UNREAD' as const, createdAt: '2026-01-02T00:00:00.000Z', internalOnly: 'must not leak' };
+      const older = { id: 'msg-a', name: 'Test Sender A', email: 'a@example.test', subject: '[technical] A', message: 'Synthetic message A', status: 'UNREAD' as const, createdAt: '2026-01-01T00:00:00.000Z' };
+      let receivedQuery: [number, number] | null = null;
+      const app = express();
+      app.use(sessionMiddleware);
+      registerAdminContactRoutes(app, {
+        getContactMessages: async (limit, offset) => {
+          receivedQuery = [limit, offset];
+          return [newest, older].slice(offset, offset + limit) as any;
+        },
+      });
+      const server = http.createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const base = `http://127.0.0.1:${(server.address() as any).port}`;
+      const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+      try {
+        let response = await fetch(`${base}/api/admin/contact-messages`);
+        assert.equal(response.status, 401, 'anonymous request is denied');
+        response = await fetch(`${base}/api/admin/contact-messages`, { headers: auth(userToken) });
+        assert.equal(response.status, 403, 'ordinary account is denied');
+        response = await fetch(`${base}/api/admin/contact-messages`, { headers: auth(expiredToken) });
+        assert.equal(response.status, 401, 'expired administrator session is denied');
+
+        response = await fetch(`${base}/api/admin/contact-messages?limit=1&offset=0`, { headers: auth(adminToken) });
+        assert.equal(response.status, 200);
+        const result = await response.json() as any;
+        assert.deepEqual(receivedQuery, [2, 0], 'fetches one extra row to determine whether another page exists');
+        assert.deepEqual(result.data.items.map((item: any) => item.id), ['msg-b'], 'newest message is first');
+        assert.deepEqual(result.data.pagination, { limit: 1, offset: 0, hasMore: true, nextOffset: 1 });
+        assert.deepEqual(Object.keys(result.data.items[0]).sort(), ['createdAt', 'email', 'id', 'message', 'name', 'status', 'subject']);
+
+        response = await fetch(`${base}/api/admin/contact-messages?limit=1&offset=1`, { headers: auth(adminToken) });
+        assert.equal(response.status, 200);
+        const secondPage = await response.json() as any;
+        assert.deepEqual(receivedQuery, [2, 1]);
+        assert.deepEqual(secondPage.data.items.map((item: any) => item.id), ['msg-a']);
+        assert.deepEqual(secondPage.data.pagination, { limit: 1, offset: 1, hasMore: false, nextOffset: null });
+
+        response = await fetch(`${base}/api/admin/contact-messages?limit=51&offset=0`, { headers: auth(adminToken) });
+        assert.equal(response.status, 400, 'page size over the fixed maximum is rejected');
+        response = await fetch(`${base}/api/admin/contact-messages?limit=2&limit=3`, { headers: auth(adminToken) });
+        assert.equal(response.status, 400, 'duplicate query parameters are rejected');
+        response = await fetch(`${base}/api/admin/contact-messages?limit=20&offset=100000`, { headers: auth(adminToken) });
+        assert.equal(response.status, 400, 'page cannot extend beyond the explicit result window');
+
+        const failingApp = express();
+        failingApp.use(sessionMiddleware);
+        registerAdminContactRoutes(failingApp, { getContactMessages: async () => { throw new Error('private database diagnostic'); } });
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        const failingServer = http.createServer(failingApp);
+        await new Promise<void>((resolve) => failingServer.listen(0, '127.0.0.1', resolve));
+        try {
+          const failingBase = `http://127.0.0.1:${(failingServer.address() as any).port}`;
+          response = await fetch(`${failingBase}/api/admin/contact-messages`, { headers: auth(adminToken) });
+          assert.equal(response.status, 503);
+          const failure = await response.json() as any;
+          assert.equal(failure.success, false);
+          assert.doesNotMatch(JSON.stringify(failure), /private database diagnostic/);
+        } finally {
+          failingServer.closeAllConnections();
+          await new Promise<void>((resolve) => failingServer.close(() => resolve()));
+        }
+        return { passed: true, details: 'Real session/admin middleware denies anonymous and ordinary users; admin pagination is bounded and projected, while storage failures return a generic 503.' };
+      } finally {
+        server.closeAllConnections();
+        if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
+        db.users.delete(admin.id);
+        db.users.delete(ordinaryUser.id);
+      }
+    },
+  },
   // Test 1: Valid MP4 Magic Bytes
   {
     name: '1. Valid MP4 Magic Bytes (ftyp container)',
