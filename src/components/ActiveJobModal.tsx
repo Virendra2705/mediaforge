@@ -52,7 +52,6 @@ export const ActiveJobModal: React.FC = () => {
     setCurrentUrl,
     analyzeUrl,
     addToast,
-    authToken,
     t,
   } = useApp();
   const [isRequestingDownload, setIsRequestingDownload] = useState(false);
@@ -138,7 +137,6 @@ export const ActiveJobModal: React.FC = () => {
       // If download URL is missing from activeJob state, request fresh signed URL from server
       if (!downloadUrl) {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
         if (activeJob.jobCapability) headers['X-Job-Capability'] = activeJob.jobCapability;
 
         const res = await fetch('/api/download', {

@@ -121,17 +121,17 @@ export const UniversalVideoDownloaderView: React.FC = () => {
         'Depending on the source video resolution, VideoFetch supports 4K Ultra HD (2160p), Quad HD (1440p), Full HD (1080p), 720p, 480p, 360p, and audio extraction in MP3 up to 320 kbps.',
     },
     {
-      question: 'Are downloads anonymous and secure?',
+      question: 'What information does VideoFetch record?',
       answer:
-        'Yes. All stream requests are sanitized against SSRF threats. We do not maintain logs of user identities or personal data, and generated artifacts are automatically deleted from server workers after 15 minutes.',
+        'The application may keep operational records that include technical request details and media source information. Temporary job expiry does not guarantee immediate deletion from every storage or infrastructure layer. See the Privacy Policy for details.',
     },
   ];
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <SEOHead
-        title="Video Downloader Online – Fast HD & 4K Media Tools"
-        description="Download supported online videos in HD, 1080p, and 4K MP4 format. VideoFetch provides fast, clean, and secure media downloading with zero spam."
+        title="Online Video Downloader for Supported Sources | VideoFetch"
+        description="Analyze supported public video links, review source-provided formats, and prepare an authorized download. Available options vary by source."
         canonicalPath="/video-downloader"
         breadcrumbs={[
           { name: 'Tools', url: '/supported-platforms' },
@@ -144,7 +144,7 @@ export const UniversalVideoDownloaderView: React.FC = () => {
 
       <UrlInputBar
         customHeading="Online Video Downloader"
-        customSubtitle="Download supported online videos in HD and 4K MP4 with fast, clean, and secure server-side tools."
+        customSubtitle="Analyze a supported public video link and review the formats the source makes available."
       />
       <MediaResultCard />
 
@@ -157,7 +157,7 @@ export const UniversalVideoDownloaderView: React.FC = () => {
                 How to Download Online Videos with VideoFetch
               </h2>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                VideoFetch streamlines video downloading by running format resolution directly in a secure server-side sandbox. Follow three simple steps to save your video:
+                Submit a supported public link, review the available formats, and request an export when one is offered. Source availability and processing time vary.
               </p>
             </div>
 
@@ -167,7 +167,7 @@ export const UniversalVideoDownloaderView: React.FC = () => {
                   1
                 </div>
                 <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">Paste Video Link</h4>
-                <p className="text-xs text-slate-500">Copy the URL from YouTube, TikTok, X, or Vimeo and paste it into the search bar.</p>
+                <p className="text-xs text-slate-500">Paste a link from YouTube, Vimeo, SoundCloud, Wikimedia Commons, or a supported direct media source.</p>
               </div>
 
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -175,7 +175,7 @@ export const UniversalVideoDownloaderView: React.FC = () => {
                   2
                 </div>
                 <h4 className="font-bold text-sm text-slate-900 dark:text-white mb-1">Choose Resolution</h4>
-                <p className="text-xs text-slate-500">Select your preferred format (4K, 1080p, 720p MP4 or 320 kbps MP3 audio).</p>
+                <p className="text-xs text-slate-500">Choose from the formats returned for that source. Resolution and audio options are not available for every link.</p>
               </div>
 
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -193,7 +193,7 @@ export const UniversalVideoDownloaderView: React.FC = () => {
                   Video Quality &amp; Streaming Concepts
                 </h3>
                 <p>
-                  Modern video distribution relies on adaptive bitrate streaming protocols such as DASH (Dynamic Adaptive Streaming over HTTP) and HLS (HTTP Live Streaming). Under these architectures, 1080p Full HD and 4K Ultra HD video tracks are encoded without audio to save bandwidth, while audio streams are served independently. VideoFetch inspects both stream manifests, synchronizes the video and audio timelines, and multiplexes them on the fly using FFmpeg into a unified MP4 container.
+                  Some streaming sources provide separate audio and video tracks, while others provide a combined file. The formats and processing available in VideoFetch depend on the provider response and the selected source.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 text-xs">
                   <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -202,7 +202,7 @@ export const UniversalVideoDownloaderView: React.FC = () => {
                   </div>
                   <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                     <span className="font-bold text-slate-900 dark:text-white block mb-1">Frame Rates (30 vs. 60 FPS)</span>
-                    <span>Standard films and vlogs use 24–30 FPS, while gaming and action recordings use 60 FPS for fluid motion. VideoFetch preserves the source stream&apos;s native frame rate without dropping frames.</span>
+                    <span>Frame rate describes how many images are displayed per second. Whether an export preserves the source frame rate depends on the selected format and processing path.</span>
                   </div>
                 </div>
               </div>
@@ -214,7 +214,7 @@ export const UniversalVideoDownloaderView: React.FC = () => {
                 <ul className="space-y-2 text-xs">
                   <li className="flex items-start gap-2">
                     <span className="font-bold text-slate-800 dark:text-slate-200 shrink-0">• Private or Login-Gated Media:</span>
-                    <span>VideoFetch cannot access private videos, member-only streams, or content requiring account credentials, as we operate in a stateless privacy sandbox.</span>
+                    <span>Private, login-gated, or otherwise access-controlled media is not supported. Use only links and content you are authorized to process.</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="font-bold text-slate-800 dark:text-slate-200 shrink-0">• DRM &amp; Encrypted Streams:</span>
@@ -316,7 +316,7 @@ export const FourKDownloaderView: React.FC = () => {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <SEOHead
         title="4K Video Downloader Online – Download Ultra HD 2160p & 1080p | VideoFetch"
-        description="Download online videos in Ultra HD 4K (2160p), 2K (1440p), and 1080p Full HD. VideoFetch multiplexes video and audio streams into clean MP4 files."
+        description="Check whether a supported public video source offers a 4K or other high-resolution format. Available resolutions and exports vary by source."
         canonicalPath="/4k-video-downloader"
         breadcrumbs={[
           { name: 'Tools', url: '/supported-platforms' },
@@ -329,7 +329,7 @@ export const FourKDownloaderView: React.FC = () => {
 
       <UrlInputBar
         customHeading="4K & Ultra HD Video Downloader"
-        customSubtitle="Extract and multiplex pristine 2160p (4K), 1440p (2K), and 1080p Full HD video streams with crystal-clear audio."
+        customSubtitle="Review the resolutions returned for your supported source. 4K and other high-resolution formats are not available for every link."
       />
       <MediaResultCard />
 
@@ -615,6 +615,7 @@ interface PlatformLandingProps {
   platformName: string;
   badge: string;
   canonicalPath: string;
+  noindex?: boolean;
   seoTitle: string;
   seoDescription: string;
   heading: string;
@@ -627,6 +628,7 @@ const GenericPlatformView: React.FC<PlatformLandingProps> = ({
   platformName,
   badge,
   canonicalPath,
+  noindex = false,
   seoTitle,
   seoDescription,
   heading,
@@ -634,12 +636,35 @@ const GenericPlatformView: React.FC<PlatformLandingProps> = ({
   descriptionText,
   faqs,
 }) => {
+  if (noindex) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16 space-y-6 text-center">
+        <SEOHead
+          title="Source Not Currently Supported | VideoFetch"
+          description="Check the VideoFetch supported sources page for currently available media providers."
+          canonicalPath={canonicalPath}
+          noindex
+        />
+        <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white">
+          {platformName} links are not currently supported
+        </h1>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Available sources and their current limitations are listed on the supported media sources page.
+        </p>
+        <a href="/supported-platforms" className="inline-flex px-5 py-3 rounded-xl bg-indigo-600 text-white font-semibold">
+          View supported media sources
+        </a>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <SEOHead
         title={seoTitle}
         description={seoDescription}
         canonicalPath={canonicalPath}
+        noindex={noindex}
         breadcrumbs={[
           { name: 'Platforms', url: '/supported-platforms' },
           { name: `${platformName} Downloader`, url: canonicalPath },
@@ -706,10 +731,10 @@ const GenericPlatformView: React.FC<PlatformLandingProps> = ({
           <h3 className="text-xl font-bold text-slate-900 dark:text-white">Other Supported Platforms</h3>
           <RelatedToolsGrid
             links={[
-              { name: 'YouTube Downloader', route: '/youtube-video-downloader', desc: 'Download YouTube videos in 4K & 1080p.', icon: <Video className="w-4 h-4" /> },
-              { name: 'TikTok Downloader', route: '/tiktok-video-downloader', desc: 'Save HD TikTok videos and audio tracks.', icon: <Sparkles className="w-4 h-4" /> },
-              { name: 'Instagram Downloader', route: '/instagram-video-downloader', desc: 'Save Reels, Stories, and video posts.', icon: <ImageIcon className="w-4 h-4" /> },
-              { name: 'X / Twitter Downloader', route: '/x-video-downloader', desc: 'Download high-definition videos from X.', icon: <Globe className="w-4 h-4" /> },
+              { name: 'YouTube Downloader', route: '/youtube-video-downloader', desc: 'Check available options for supported YouTube links.', icon: <Video className="w-4 h-4" /> },
+              { name: 'YouTube Shorts', route: '/youtube-shorts-downloader', desc: 'Check supported YouTube Shorts links.', icon: <Sparkles className="w-4 h-4" /> },
+              { name: 'Vimeo Downloader', route: '/vimeo-video-downloader', desc: 'Check public Vimeo links and source limitations.', icon: <ImageIcon className="w-4 h-4" /> },
+              { name: 'Supported Sources', route: '/supported-platforms', desc: 'Review supported sources and limitations.', icon: <Globe className="w-4 h-4" /> },
             ]}
           />
         </div>
@@ -758,6 +783,7 @@ export const TikTokDownloaderView: React.FC = () => (
     platformName="TikTok"
     badge="TikTok HD Video & MP3"
     canonicalPath="/tiktok-video-downloader"
+    noindex
     seoTitle="TikTok Video Downloader – Download Supported Videos | VideoFetch"
     seoDescription="Download supported TikTok videos in high-definition MP4 format or extract background audio to MP3 with VideoFetch."
     heading="TikTok Video Downloader"
@@ -775,6 +801,7 @@ export const InstagramDownloaderView: React.FC = () => (
     platformName="Instagram"
     badge="Reels & Video Posts"
     canonicalPath="/instagram-video-downloader"
+    noindex
     seoTitle="Instagram Video Downloader – Download Reels & Videos | VideoFetch"
     seoDescription="Download supported Instagram Reels and video posts in HD MP4 format with VideoFetch. Fast, secure, and easy to use."
     heading="Instagram Video Downloader"
@@ -792,6 +819,7 @@ export const XTwitterDownloaderView: React.FC = () => (
     platformName="X (Twitter)"
     badge="X (Twitter) HD Clips"
     canonicalPath="/x-video-downloader"
+    noindex
     seoTitle="X Video Downloader – Download Twitter Videos in HD | VideoFetch"
     seoDescription="Download videos and clips from X (formerly Twitter) in HD MP4 format. Simple, fast, and secure media tool by VideoFetch."
     heading="X (Twitter) Video Downloader"
@@ -825,6 +853,7 @@ export const PinterestDownloaderView: React.FC = () => (
     platformName="Pinterest"
     badge="Pinterest Video Pins"
     canonicalPath="/pinterest-video-downloader"
+    noindex
     seoTitle="Pinterest Video Downloader – Download Video Pins in HD | VideoFetch"
     seoDescription="Download supported Pinterest video pins in HD MP4 format. Save video tutorials, DIY clips, and recipes with VideoFetch."
     heading="Pinterest Video Downloader"
@@ -841,6 +870,7 @@ export const BilibiliDownloaderView: React.FC = () => (
     platformName="Bilibili"
     badge="Bilibili 1080p HD"
     canonicalPath="/bilibili-video-downloader"
+    noindex
     seoTitle="Bilibili Video Downloader – Download Bilibili Videos | VideoFetch"
     seoDescription="Download public Bilibili videos and audio tracks in high-definition MP4 format with VideoFetch."
     heading="Bilibili Video Downloader"

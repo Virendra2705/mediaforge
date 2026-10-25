@@ -25,43 +25,49 @@ export const DmcaView: React.FC = () => {
   const [claimantName, setClaimantName] = useState('');
   const [claimantEmail, setClaimantEmail] = useState('');
   const [targetUrl, setTargetUrl] = useState('');
-  const [originalWorkUrl, setOriginalWorkUrl] = useState('');
-  const [statement, setStatement] = useState('');
-  const [isAgreed, setIsAgreed] = useState(false);
+  const [copyrightWorkDescription, setCopyrightWorkDescription] = useState('');
+  const [ownershipProofDescription, setOwnershipProofDescription] = useState('');
+  const [reason, setReason] = useState('');
+  const [goodFaithStatement, setGoodFaithStatement] = useState(false);
+  const [accuracyStatement, setAccuracyStatement] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!claimantName.trim() || !claimantEmail.trim() || !targetUrl.trim() || !isAgreed) {
+    if (!claimantName.trim() || !claimantEmail.trim() || !targetUrl.trim() ||
+      copyrightWorkDescription.trim().length < 10 || ownershipProofDescription.trim().length < 10 ||
+      reason.trim().length < 5 || !goodFaithStatement || !accuracyStatement) {
       addToast('error', 'Missing Fields', 'Please complete all required fields and accept the statutory declaration.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/dmca', {
+      const res = await fetch('/api/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          claimantName,
-          claimantEmail,
-          targetUrl,
-          originalWorkUrl,
-          statement,
+          complainantName: claimantName.trim(),
+          email: claimantEmail.trim(),
+          targetUrl: targetUrl.trim(),
+          copyrightWorkDescription: copyrightWorkDescription.trim(),
+          ownershipProofDescription: ownershipProofDescription.trim(),
+          reason: reason.trim(),
+          goodFaithStatement,
+          accuracyStatement,
         }),
       });
       const data = await res.json();
-      if (data.success) {
-        setSubmittedId(data.complaintId || 'DMCA-' + Math.random().toString(36).substring(2, 8).toUpperCase());
-        addToast('success', 'Complaint Logged', 'Your notice has been recorded for review.');
+      if (res.ok && data.success === true && typeof data.data?.reportId === 'string') {
+        setSubmittedId(data.data.reportId);
+        addToast('success', 'Submission Confirmed', 'The application confirmed receipt of your notice.');
       } else {
-        addToast('error', 'Submission Failed', data.error || 'Server error occurred.');
+        const message = typeof data.error === 'string' ? data.error : data.error?.message;
+        addToast('error', 'Submission Failed', message || 'The application could not confirm receipt. Please use the direct contact email.');
       }
     } catch {
-      // Fallback submission acknowledgement
-      setSubmittedId('DMCA-' + Math.random().toString(36).substring(2, 8).toUpperCase());
-      addToast('success', 'Complaint Logged', 'Your notice has been recorded.');
+      addToast('error', 'Submission Not Confirmed', 'The website could not confirm receipt. Please use the direct contact email to submit your notice.');
     } finally {
       setIsSubmitting(false);
     }
@@ -70,8 +76,8 @@ export const DmcaView: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-10">
       <SEOHead
-        title="DMCA Copyright Takedown Policy & Notice Form | VideoFetch"
-        description="Official Digital Millennium Copyright Act (17 U.S.C. § 512) notice and takedown procedure for VideoFetch media processing utilities."
+        title="Copyright Policy and Notice Form | VideoFetch"
+        description="Read the VideoFetch copyright policy and submit a notice through the available form or contact address."
         canonicalPath="/dmca"
         breadcrumbs={[{ name: 'DMCA Takedown Policy', url: '/dmca' }]}
       />
@@ -94,10 +100,10 @@ export const DmcaView: React.FC = () => {
       <div className="p-6 sm:p-8 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 space-y-6 text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed shadow-sm">
         <section className="space-y-2">
           <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-            1. Nature of the Service &amp; Stateless Architecture
+            1. Service Overview
           </h2>
           <p>
-            VideoFetch is a technical utility that facilitates user-initiated transcoding and formatting of media. We do not host a public media gallery, maintain searchable indexes of unauthorized files, or operate a permanent media archive. Media processed through VideoFetch is transiently handled in temporary scratch memory with automated 15-minute file expiration.
+            VideoFetch is a technical utility for user-initiated media analysis and processing. It is not a public media gallery. Processing and storage details, including known expiry behavior and its limits, are described in the Privacy Policy.
           </p>
         </section>
 
@@ -123,7 +129,7 @@ export const DmcaView: React.FC = () => {
             3. Review Process &amp; Technical Enforcement
           </h2>
           <p>
-            Upon receipt of a valid, actionable DMCA notice, VideoFetch will review the submission promptly. Where appropriate, we will add the target URL, streaming feed, or origin domain to our server-side security blocklist. Once blocklisted, our API rejects all subsequent extraction or transcoding requests for that resource.
+            A successful form response confirms that the application accepted the notice for review; it does not establish a review deadline or guarantee that a URL or domain has been blocked. Contact the listed email address if the form does not confirm receipt.
           </p>
         </section>
 
@@ -132,7 +138,7 @@ export const DmcaView: React.FC = () => {
             4. Repeat Infringement Handling
           </h2>
           <p>
-            In accordance with the DMCA and applicable standards, VideoFetch enforces a policy that disables access to our extraction endpoints for recurring sources of infringement. We monitor repeated takedown notices associated with specific domains and place confirmed repeat-offender endpoints on permanent blocklists.
+            This site does not describe a verified repeat-infringer process or permanent blocklist. Notices are handled according to applicable requirements and the information available to the operator.
           </p>
         </section>
 
@@ -141,7 +147,7 @@ export const DmcaView: React.FC = () => {
             5. Designated Contact Method
           </h2>
           <p>
-            Written notices may be submitted via our direct contact email or through the interactive notification form below:
+            Written notices may be sent to the direct contact email below or submitted through the notice form. A form submission is confirmed only when the application returns a successful response.
           </p>
           <p className="font-semibold text-slate-900 dark:text-white">
             Designated Contact Email: <span className="text-indigo-600 dark:text-indigo-400 font-mono">virendrthakor8@gmail.com</span>
@@ -154,17 +160,16 @@ export const DmcaView: React.FC = () => {
             Submit an Online Takedown Notice
           </h3>
           <p className="text-xs text-slate-500 mb-6">
-            Complete the fields below to file an expedited notice. All fields marked with * are required.
+            Complete all required fields. The application will confirm receipt only if it accepts the notice; submission does not guarantee a review outcome or that a source will be blocked.
           </p>
 
           {submittedId ? (
             <div className="p-6 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-center space-y-3">
               <CheckCircle2 className="w-10 h-10 text-emerald-600 dark:text-emerald-400 mx-auto" />
-              <h4 className="text-base font-bold text-slate-900 dark:text-white">
-                Takedown Notice Successfully Logged
-              </h4>
+              <h4 className="text-base font-bold text-slate-900 dark:text-white">Submission Confirmed</h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 max-w-md mx-auto">
-                Reference ID: <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{submittedId}</span>. Our compliance desk has received your notice for investigation.
+                {submittedId !== 'Submission confirmed' && <>Reference ID: <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{submittedId}</span>. </>}
+                The application confirmed receipt. This confirmation does not represent a review decision or a promise that a source has been blocked.
               </p>
             </div>
           ) : (
@@ -172,7 +177,7 @@ export const DmcaView: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Full Legal Name / Organization *
+                    Electronic Signature / Full Legal Name *
                   </label>
                   <input
                     type="text"
@@ -201,7 +206,7 @@ export const DmcaView: React.FC = () => {
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Infringing Stream URL to Block *
+                  URL or Stream Identifying the Alleged Infringement *
                 </label>
                 <input
                   type="url"
@@ -215,47 +220,79 @@ export const DmcaView: React.FC = () => {
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  URL / Proof of Original Work
+                  Identification of the Copyrighted Work *
                 </label>
-                <input
-                  type="url"
-                  value={originalWorkUrl}
-                  onChange={e => setOriginalWorkUrl(e.target.value)}
-                  placeholder="Link to original work, copyright registry, or official publisher"
+                <textarea
+                  rows={3}
+                  required
+                  minLength={10}
+                  value={copyrightWorkDescription}
+                  onChange={e => setCopyrightWorkDescription(e.target.value)}
+                  placeholder="Identify the copyrighted work or provide a representative list."
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Statement of Infringement &amp; Description
+                  Basis of Ownership or Authority to Act *
                 </label>
                 <textarea
                   rows={3}
-                  value={statement}
-                  onChange={e => setStatement(e.target.value)}
-                  placeholder="Describe your ownership of the work and the unauthorized nature of the target stream..."
+                  required
+                  minLength={10}
+                  value={ownershipProofDescription}
+                  onChange={e => setOwnershipProofDescription(e.target.value)}
+                  placeholder="Describe your ownership or authority and any supporting evidence."
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs space-y-2">
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Explanation of the Claimed Infringement *
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  minLength={5}
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="Explain why the identified URL infringes the work."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs space-y-3">
                 <label className="flex items-start gap-2.5 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={isAgreed}
-                    onChange={e => setIsAgreed(e.target.checked)}
+                    required
+                    checked={goodFaithStatement}
+                    onChange={e => setGoodFaithStatement(e.target.checked)}
                     className="mt-0.5 rounded text-rose-600 focus:ring-rose-500"
                   />
                   <span className="text-slate-600 dark:text-slate-400">
-                    I state under penalty of perjury that I have a good-faith belief that use of the material is not authorized, and that the information in this notice is accurate and that I am the copyright owner or authorized to act on their behalf.
+                    I have a good-faith belief that the use of the material described above is not authorized by the copyright owner, its agent, or the law.
+                  </span>
+                </label>
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    required
+                    checked={accuracyStatement}
+                    onChange={e => setAccuracyStatement(e.target.checked)}
+                    className="mt-0.5 rounded text-rose-600 focus:ring-rose-500"
+                  />
+                  <span className="text-slate-600 dark:text-slate-400">
+                    The information in this notice is accurate, and under penalty of perjury I am the owner or authorized to act on behalf of the owner of the allegedly infringed exclusive right.
                   </span>
                 </label>
               </div>
 
               <button
                 type="submit"
-                disabled={isSubmitting || !isAgreed}
+                disabled={isSubmitting || !goodFaithStatement || !accuracyStatement}
                 className="w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-xs sm:text-sm bg-rose-600 hover:bg-rose-500 text-white shadow-md flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
               >
                 <Send className="w-4 h-4" />
@@ -442,13 +479,13 @@ export const PrivacyView: React.FC = () => {
           </p>
           <ul className="list-disc list-inside space-y-1.5 pl-2">
             <li>
-              <strong>Submitted URLs:</strong> When you analyze or convert a video, our server receives the public URL you provide to query stream metadata and initiate format transcoding. We do not link these URLs to personal identities.
+              <strong>Submitted media links:</strong> The service receives the URL and related media metadata needed to analyze a supported link. Operational audit records may include the request IP address, source hostname, or media title, so we cannot promise that request activity is never associated with technical identifiers.
             </li>
             <li>
-              <strong>No Mandatory User Accounts:</strong> Standard downloading, audio conversion, and trimming functions do not require creating an account or providing your name, email, or telephone number.
+              <strong>Accounts:</strong> Some features can be used without an account. If you register or sign in, the service processes the account details you submit, such as your name and email address, and stores a password hash rather than the original password.
             </li>
             <li>
-              <strong>Direct Communications:</strong> If you submit a message through our Contact page or send an email, we receive the details you choose to share (name, email address, message body) solely to reply to your inquiry.
+              <strong>Communications and reports:</strong> If you email us or submit a contact, copyright, or security report, we receive the information and attachments you choose to send. Contact and report records may be stored in the application's database for review.
             </li>
           </ul>
         </section>
@@ -456,37 +493,36 @@ export const PrivacyView: React.FC = () => {
         <section className="space-y-2">
           <h2 className="font-bold text-base text-slate-900 dark:text-white">2. Server Logs &amp; Technical Request Data</h2>
           <p>
-            Like standard web applications, our web server logs basic technical parameters for operational maintenance, rate limiting, and DDoS/abuse prevention. These logs may contain:
+            The application creates operational and audit records for service operation and abuse handling. Depending on the event, records can include:
           </p>
           <ul className="list-disc list-inside space-y-1 pl-2">
-            <li>Your Internet Protocol (IP) address</li>
-            <li>Browser user agent string</li>
-            <li>Request timestamps and HTTP status codes</li>
+            <li>Request IP address and event timestamps</li>
+            <li>Media source hostname or title for analysis audit events</li>
+            <li>Email address for contact events and identifying details for copyright reports</li>
           </ul>
           <p className="pt-1">
-            Server logs are automatically rotated and retained only for short diagnostic windows (typically 24 to 72 hours). We do not sell or monetize server log data.
+            Audit records can be persisted in the configured application database. This repository does not define a fixed retention period or automatic deletion schedule for all operational, contact, or report records. Hosting providers may maintain separate infrastructure logs under their own retention rules.
           </p>
         </section>
 
         <section className="space-y-2">
           <h2 className="font-bold text-base text-slate-900 dark:text-white">3. Local Storage &amp; Cookies</h2>
           <p>
-            VideoFetch does not use proprietary tracking cookies. We utilize browser <code>localStorage</code> solely to remember client-side preferences across sessions:
+            The browser stores interface preferences and recent-job summaries in <code>localStorage</code>. These entries include:
           </p>
           <ul className="list-disc list-inside space-y-1 pl-2">
-            <li>Selected color theme (dark or light mode)</li>
-            <li>Atmosphere background scenery and motion speed settings</li>
-            <li>Selected interface language</li>
+            <li>Color theme, interface language, background scene, and motion preference</li>
+            <li>Cookie-consent choice and recent-job summaries</li>
           </ul>
           <p className="pt-1">
-            You can clear your browser local storage at any time via your browser settings.
+            Signed-in sessions use an HTTP-only session cookie with a configured 72-hour lifetime. You can clear local storage and cookies through your browser settings; clearing them may remove saved preferences and recent-job history or sign you out.
           </p>
         </section>
 
         <section className="space-y-2">
           <h2 className="font-bold text-base text-slate-900 dark:text-white">4. Advertising &amp; Google AdSense</h2>
           <p>
-            VideoFetch may partner with Google AdSense and third-party advertising partners to display advertisements on our website to support our free media tooling infrastructure.
+            Google AdSense may load when an advertising client is configured for the site. If enabled, Google and other advertising partners may use cookies or similar technologies under their own policies. This repository does not establish whether personalized advertising is enabled for a particular deployment.
           </p>
           <ul className="list-disc list-inside space-y-1.5 pl-2">
             <li>
@@ -521,33 +557,28 @@ export const PrivacyView: React.FC = () => {
         <section className="space-y-2">
           <h2 className="font-bold text-base text-slate-900 dark:text-white">5. Third-Party Services &amp; APIs</h2>
           <p>
-            When processing URLs, our backend interacts with origin streaming platforms (such as YouTube, Vimeo, TikTok, or direct CDNs) via their public metadata or oEmbed endpoints. These interactions are conducted on the server side to protect user privacy. We do not transmit user IP addresses to origin media hosts during oEmbed resolution.
+            When processing a link, the application may make server-side requests to the supported media source or configured storage and database providers. Those services receive requests from the application's network and process the data needed for the request. Do not submit links or information you do not want processed by those services.
           </p>
         </section>
 
         <section className="space-y-2">
           <h2 className="font-bold text-base text-slate-900 dark:text-white">6. Ephemeral Media Storage &amp; Data Retention</h2>
           <p>
-            VideoFetch operates on a zero-persistence model for media files. Extracted video and audio files reside in ephemeral scratch volumes (<code>/temp_media</code>). Download links are signed with HMAC cryptographic tokens that automatically expire within 15 minutes. Once expired, temporary files are permanently removed from server storage workers.
+            Analysis metadata is cached for up to one hour. Download jobs and their links are assigned a 15-minute expiry, after which the application attempts to clean up associated temporary media. Files may pass through local temporary storage or configured object storage. Cleanup depends on the application and storage provider completing the deletion; this repository does not establish a universal retention period for backups or infrastructure copies.
           </p>
         </section>
 
         <section className="space-y-2">
           <h2 className="font-bold text-base text-slate-900 dark:text-white">7. Security Safeguards</h2>
           <p>
-            We implement technical safeguards to protect our service and users:
+            The application includes URL validation, access controls, and media-file checks. These controls reduce specific risks but are not a guarantee that every security issue or outbound-network risk has been eliminated.
           </p>
-          <ul className="list-disc list-inside space-y-1 pl-2">
-            <li>SSRF defenses preventing queries to private loopback and internal cloud addresses</li>
-            <li>Container magic-byte verification ensuring files conform to authentic binary media containers</li>
-            <li>Transport Layer Security (HTTPS) encryption for all web communications</li>
-          </ul>
         </section>
 
         <section className="space-y-2">
           <h2 className="font-bold text-base text-slate-900 dark:text-white">8. User Rights (GDPR, CCPA &amp; Global Standards)</h2>
           <p>
-            Depending on your jurisdiction, you have statutory rights regarding your personal information, including the right to request access, rectification, or deletion of communications you have sent us. Because we do not store user accounts or personal profiles, we do not hold personal identification records.
+            Depending on your jurisdiction, you may have rights to request access to, correction of, or deletion of personal information. Requests can be sent to the contact address below. We will review requests against applicable requirements and the records available to us.
           </p>
         </section>
 
@@ -573,9 +604,10 @@ export const SecurityView: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
       <SEOHead
-        title="Security & Pipeline Protection Architecture | VideoFetch"
-        description="Explore the security controls engineered into VideoFetch: SSRF prevention, container magic byte validation, FFprobe integrity, and HMAC tokens."
+        title="Application Security Controls and Limitations | VideoFetch"
+        description="An overview of application-level validation controls and their limitations. This page is not a security certification or guarantee."
         canonicalPath="/security"
+        noindex
         breadcrumbs={[{ name: 'Security Architecture', url: '/security' }]}
       />
 
@@ -584,13 +616,13 @@ export const SecurityView: React.FC = () => {
       <div className="space-y-2">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
           <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Multi-Layer Defense System</span>
+          <span>Application Controls and Limitations</span>
         </div>
         <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white">
-          Security &amp; Architecture Standards
+          Application Security Notes
         </h1>
         <p className="text-sm text-slate-500">
-          How VideoFetch protects users, origin networks, and media pipeline infrastructure.
+          A brief description of selected application controls. This page is not a security certification or a guarantee about the deployed service.
         </p>
       </div>
 
@@ -601,7 +633,7 @@ export const SecurityView: React.FC = () => {
           </div>
           <h2 className="font-bold text-base text-slate-900 dark:text-white">SSRF Defense &amp; IP Filtering</h2>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Every submitted URL is parsed and filtered against private IP subnets (RFC 1918), loopback addresses (127.0.0.1), and cloud provider metadata interfaces (169.254.169.254).
+            The application validates URLs and checks network addresses before some requests. These checks reduce certain risks but do not guarantee that every outbound path is controlled. Outbound-egress enforcement still has a known unresolved gap.
           </p>
         </div>
 
@@ -611,7 +643,7 @@ export const SecurityView: React.FC = () => {
           </div>
           <h2 className="font-bold text-base text-slate-900 dark:text-white">Magic Byte &amp; Container Inspection</h2>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Downloaded streams are audited for authentic binary container signatures (MP4 ftyp, WebM EBML, MP3 sync frames) to prevent masquerading HTML challenges or exploit payloads.
+            The application checks media signatures in selected processing paths to help reject unexpected responses. This is one validation measure and cannot establish that all content is safe.
           </p>
         </div>
 
@@ -621,7 +653,7 @@ export const SecurityView: React.FC = () => {
           </div>
           <h2 className="font-bold text-base text-slate-900 dark:text-white">FFprobe Codec Verification</h2>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Before being presented as ready for download, all artifacts must pass rigorous FFprobe container validation, verifying stream parameters, duration, audio sample rates, and visual integrity.
+            Some generated media files are checked with FFprobe for expected stream information. The check is limited to those processing paths and is not a guarantee that every artifact or source is safe.
           </p>
         </div>
 
@@ -631,7 +663,7 @@ export const SecurityView: React.FC = () => {
           </div>
           <h2 className="font-bold text-base text-slate-900 dark:text-white">Cryptographic HMAC Tokens</h2>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Direct download URLs are protected with cryptographically signed tokens with an automatic 15-minute expiration period. Temporary files are automatically purged from workers upon job completion.
+            The application uses authorization checks for download links and assigns jobs a temporary expiry. Cleanup is attempted, but deletion timing can depend on configured storage and infrastructure.
           </p>
         </div>
       </div>

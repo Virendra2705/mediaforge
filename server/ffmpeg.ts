@@ -14,10 +14,11 @@ import { requestSafeHttp } from './outboundHttp.js';
 const execFileAsync = promisify(execFile);
 
 export const TEMP_MEDIA_DIR = path.join(process.cwd(), 'temp_media');
+const MAX_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
 
 // Ensure base temp directory exists
 if (!fs.existsSync(TEMP_MEDIA_DIR)) {
-  fs.mkdirSync(TEMP_MEDIA_DIR, { recursive: true });
+  fs.mkdirSync(TEMP_MEDIA_DIR, { recursive: true, mode: 0o700 });
 }
 
 /**
@@ -236,6 +237,7 @@ export function sanitizeLogMessage(msg: string): string {
     .replace(/--cookies-from-browser\s+[^\s]+/gi, '--cookies-from-browser [REDACTED]')
     .replace(/Authorization:\s*(?:Bearer\s+)?[^\r\n\s]+/gi, 'Authorization: [REDACTED]')
     .replace(/Cookie:\s*[^\r\n]+/gi, 'Cookie: [REDACTED]')
+    .replace(/\bhttps?:\/\/[^\s<>"']+/gi, '[REDACTED_URL]')
     .replace(/cookie[=:][^\s&;\r\n]+/gi, 'cookie=[REDACTED]')
     .replace(/token[=:][^\s&;\r\n]+/gi, 'token=[REDACTED]')
     .replace(/([A-Za-z0-9_-]+\.youtube\.com\s+TRUE\s+\/\s+(?:TRUE|FALSE)\s+\d+\s+)[^\r\n\t]+/g, '$1[REDACTED]');
@@ -403,8 +405,12 @@ export function loadYtDlpCookies(): YtDlpCookiesResult {
  */
 export async function generateMediaFile(params: GenerateMediaParams): Promise<FfmpegOutput> {
   const jobDir = path.join(TEMP_MEDIA_DIR, params.jobId);
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(params.jobId)) throw new Error('Invalid media job identifier.');
   if (!fs.existsSync(jobDir)) {
-    fs.mkdirSync(jobDir, { recursive: true });
+    fs.mkdirSync(jobDir, { recursive: true, mode: 0o700 });
+  }
+  if (fs.lstatSync(jobDir).isSymbolicLink() || !fs.realpathSync(jobDir).startsWith(`${fs.realpathSync(TEMP_MEDIA_DIR)}${path.sep}`)) {
+    throw new Error('Media job directory is not safely contained.');
   }
 
   const filename = sanitizeMediaFilename(params.title, params.quality, params.format);
@@ -523,7 +529,7 @@ export async function generateMediaFile(params: GenerateMediaParams): Promise<Ff
                 );
               }
 
-              await execFileAsync('ffmpeg', ffmpegArgs);
+              await execFileAsync('ffmpeg', ffmpegArgs, { timeout: 5 * 60 * 1000, maxBuffer: 2 * 1024 * 1024 });
               if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
                 directDownloadSuccess = true;
               }
@@ -536,7 +542,7 @@ export async function generateMediaFile(params: GenerateMediaParams): Promise<Ff
             } catch {}
           }
         } catch (directErr: any) {
-          console.log('[FFmpeg Direct Stream Notice]:', directErr.message);
+          console.log('[FFmpeg Direct Stream Notice]:', sanitizeLogMessage(String(directErr?.message || directErr)).slice(0, 1000));
         }
       }
 
@@ -572,6 +578,11 @@ export async function generateMediaFile(params: GenerateMediaParams): Promise<Ff
   if (stat.size === 0) {
     if (fs.existsSync(outputPath)) { try { fs.unlinkSync(outputPath); } catch {} }
     throw new Error(`MEDIA_EMPTY: Generated media file has 0 bytes at ${outputPath}`);
+  }
+
+  if (stat.size > MAX_MEDIA_FILE_BYTES) {
+    if (fs.existsSync(outputPath)) { try { fs.unlinkSync(outputPath); } catch {} }
+    throw new Error('MEDIA_TOO_LARGE: Generated media exceeds the 512 MiB processing limit.');
   }
 
   // Comprehensive validation before completing generation
@@ -614,6 +625,9 @@ export async function validateMediaFile(
   const stat = fs.statSync(filePath);
   if (stat.size === 0) {
     return { valid: false, errorCategory: 'MEDIA_EMPTY', error: 'Media file has 0 bytes' };
+  }
+  if (stat.size > MAX_MEDIA_FILE_BYTES) {
+    return { valid: false, errorCategory: 'MEDIA_TOO_LARGE', error: 'Media file exceeds the 512 MiB processing limit.' };
   }
 
   if (stat.size < 32) {
@@ -697,7 +711,7 @@ export async function verifyMediaWithFfprobe(filePath: string): Promise<{
       '-show_format',
       '-show_streams',
       filePath,
-    ]);
+    ], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
 
     const info = JSON.parse(stdout);
     const formatName = info.format?.format_name || '';

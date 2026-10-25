@@ -31,7 +31,6 @@ interface AppContextType {
   setTheme: (theme: ThemeMode) => void;
   // Authentication & Session
   user: AuthUser | null;
-  authToken: string | null;
   userRole: 'guest' | 'user' | 'admin';
   setUserRole: (role: 'guest' | 'user' | 'admin') => void;
   login: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
@@ -98,54 +97,8 @@ export const SAMPLE_URLS = [
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [route, setRouteState] = useState<AppRoute>(() => {
-    const path = window.location.pathname as AppRoute;
-    const validRoutes: AppRoute[] = [
-      '/',
-      '/video-downloader',
-      '/online-video-downloader',
-      '/4k-video-downloader',
-      '/hd-video-downloader',
-      '/audio-downloader',
-      '/video-to-mp3',
-      '/video-converter',
-      '/video-to-mp4',
-      '/thumbnail-downloader',
-      '/subtitle-downloader',
-      '/video-trimmer',
-      '/youtube-downloader',
-      '/youtube-video-downloader',
-      '/youtube-shorts-downloader',
-      '/tiktok-video-downloader',
-      '/instagram-video-downloader',
-      '/x-video-downloader',
-      '/vimeo-video-downloader',
-      '/pinterest-video-downloader',
-      '/bilibili-video-downloader',
-      '/supported-platforms',
-      '/how-it-works',
-      '/faq',
-      '/blog',
-      '/about',
-      '/contact',
-      '/privacy',
-      '/privacy-policy',
-      '/terms',
-      '/copyright',
-      '/dmca',
-      '/security',
-      '/changelog',
-      '/status',
-      '/dashboard',
-      '/admin',
-      '/admin/jobs',
-      '/admin/users',
-      '/admin/reports',
-      '/admin/settings',
-    ];
-    if (validRoutes.includes(path) || path.startsWith('/blog/')) {
-      return path;
-    }
-    return '/';
+    const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    return normalizedPath as AppRoute;
   });
 
   const setRoute = (newRoute: AppRoute) => {
@@ -156,7 +109,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   useEffect(() => {
     const handlePopState = () => {
-      setRouteState((window.location.pathname as AppRoute) || '/');
+      const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+      setRouteState(normalizedPath as AppRoute);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -208,26 +162,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Authentication State
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [authToken, setAuthToken] = useState<string | null>(() => {
-    return localStorage.getItem('mf_token') || null;
-  });
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
 
   // Initialize and verify session on load
   useEffect(() => {
-    const savedToken = localStorage.getItem('mf_token');
-    if (!savedToken) return;
-
-    fetch('/api/auth/me', {
-      headers: { Authorization: `Bearer ${savedToken}` },
-    })
+    // Remove credentials saved by older releases; session auth is cookie-only now.
+    localStorage.removeItem('mf_token');
+    fetch('/api/auth/me')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data && data.success && data.data?.user) {
           setUser(data.data.user);
         } else {
-          localStorage.removeItem('mf_token');
-          setAuthToken(null);
           setUser(null);
         }
       })
@@ -248,10 +194,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return { success: false, error: data.error?.message || 'Login failed.' };
       }
 
-      const { token, user: loggedUser } = data.data;
-      setAuthToken(token);
+      const { user: loggedUser } = data.data;
       setUser(loggedUser);
-      localStorage.setItem('mf_token', token);
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'Network error during login.' };
@@ -260,8 +204,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const logout = () => {
     fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    localStorage.removeItem('mf_token');
-    setAuthToken(null);
     setUser(null);
   };
 
@@ -344,7 +286,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
       const res = await fetch('/api/analyze', {
         method: 'POST',
@@ -396,7 +337,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
       const res = await fetch('/api/download', {
         method: 'POST',
@@ -450,7 +390,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const interval = setInterval(async () => {
       try {
         const headers: Record<string, string> = {};
-        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
         if (jobCapability) headers['X-Job-Capability'] = jobCapability;
 
         const res = await fetch(`/api/jobs/${jobId}`, { headers });
@@ -478,7 +417,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           clearInterval(interval);
           try {
             const linkHeaders: Record<string, string> = {};
-            if (authToken) linkHeaders['Authorization'] = `Bearer ${authToken}`;
             if (jobCapability) linkHeaders['X-Job-Capability'] = jobCapability;
             const linkResponse = await fetch(`/api/download?jobId=${encodeURIComponent(jobId)}`, { headers: linkHeaders });
             const linkData = await linkResponse.json();
@@ -520,7 +458,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!activeJob) return;
     try {
       const headers: Record<string, string> = {};
-      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
       if (activeJob.jobCapability) headers['X-Job-Capability'] = activeJob.jobCapability;
 
       await fetch(`/api/jobs/${activeJob.id}/cancel`, { method: 'POST', headers });
@@ -543,7 +480,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         theme,
         setTheme,
         user,
-        authToken,
         userRole,
         setUserRole,
         login,

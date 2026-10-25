@@ -3,6 +3,7 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { performance } from 'node:perf_hooks';
 import dotenv from 'dotenv';
 
 // Load .env files at the absolute earliest point
@@ -24,6 +25,7 @@ import {
 } from './server/security.js';
 import {
   sessionMiddleware,
+  sameOriginMutationGuard,
   requireAuth,
   requireAdmin,
   authenticateUser,
@@ -48,13 +50,14 @@ import {
   ensureYtDlpBinary,
   isRealCookieContent,
   parseAndValidateCookieContent,
+  sanitizeLogMessage,
 } from './server/ffmpeg.js';
 import {
   inspectMediaSignature,
   isHtmlOrChallengeContent,
 } from './server/upstreamValidator.js';
 import { registerMediaEgressRoutes } from './server/mediaEgressRoutes.js';
-import { createBlogPostHandler, registerDatabaseAvailabilityGate, registerDiagnosticAdminGate, registerPublicBlogReadRoutes, registerPublicOperationalRoutes } from './server/operationalSecurity.js';
+import { asyncRoute, createAnalysisErrorHandler, createBlogPostHandler, createDmcaReportHandler, registerDatabaseAvailabilityGate, registerDiagnosticAdminGate, registerPublicBlogReadRoutes, registerPublicOperationalRoutes } from './server/operationalSecurity.js';
 import { createAuthenticationRateLimiter, getTrustedClientAddress } from './server/authRateLimit.js';
 import { createAnonymousJobCapability, isContainedJobFilePath } from './server/jobAuthorization.js';
 import { authorizeJobRequest, authorizeSignedJobFile, downloadStreamAuthorizationMiddleware, previewJobAuthorizationMiddleware, registerJobLinkAuthorizationRoutes, registerJobStatusAndCancelRoutes, signedFileAuthorizationMiddleware } from './server/jobAccessRoutes.js';
@@ -114,6 +117,7 @@ async function startServer() {
 
   // Session middleware: populates req.user from verified HMAC/JWT tokens
   app.use(sessionMiddleware);
+  app.use('/api', sameOriginMutationGuard);
   registerDiagnosticAdminGate(app);
   registerDatabaseAvailabilityGate(app, () => db.isReady &&
     (db.persistenceMode !== 'postgres' || postgresManager.isConnected));
@@ -173,7 +177,6 @@ async function startServer() {
     return res.json({
       success: true,
       data: {
-        token,
         user,
       },
     });
@@ -191,13 +194,17 @@ async function startServer() {
       success: true,
       data: {
         user: req.user,
-        token: req.sessionToken || null,
       },
     });
   });
 
   app.post('/api/auth/logout', (req, res) => {
-    res.clearCookie('mf_session', { path: '/' });
+    res.clearCookie('mf_session', {
+      path: '/',
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    });
     return res.json({
       success: true,
       data: { message: 'Logged out successfully.' },
@@ -245,11 +252,35 @@ async function startServer() {
     url: z.string().min(1, 'URL is required.').max(2048),
   });
 
-  app.post('/api/analyze', async (req, res) => {
+  app.post('/api/analyze', asyncRoute(async (req, res) => {
+    const analysisStartedAt = performance.now();
+    const analysisTimings: {
+      rateLimitMs: number | null;
+      urlValidationMs: number | null;
+      cacheLookupMs: number | null;
+      providerAnalysisMs: number | null;
+      cachePersistWaitMs: number | null;
+    } = {
+      rateLimitMs: null,
+      urlValidationMs: null,
+      cacheLookupMs: null,
+      providerAnalysisMs: null,
+      cachePersistWaitMs: null,
+    };
+    let cacheOutcome: 'not_checked' | 'hit' | 'miss' = 'not_checked';
+    let providerId: 'none' | 'direct' | 'youtube' | 'vimeo' | 'soundcloud' | 'wikimedia' | 'other' = 'none';
+
+    try {
     const clientIp = getTrustedClientAddress(req);
 
     // Check Distributed Upstash Redis Rate Limiting (fallback to local memory)
-    const redisLimit = await redisManager.checkRateLimit(clientIp, db.settings.anonymousRateLimitPerHour, 3600);
+    let phaseStartedAt = performance.now();
+    let redisLimit;
+    try {
+      redisLimit = await redisManager.checkRateLimit(clientIp, db.settings.anonymousRateLimitPerHour, 3600);
+    } finally {
+      analysisTimings.rateLimitMs = Number((performance.now() - phaseStartedAt).toFixed(1));
+    }
     if (!redisLimit.allowed) {
       return res.status(429).json({
         success: false,
@@ -274,7 +305,13 @@ async function startServer() {
     }
 
     const { url } = parseResult.data;
-    const urlValidation = await validateAndNormalizeUrlAsync(url);
+    phaseStartedAt = performance.now();
+    let urlValidation;
+    try {
+      urlValidation = await validateAndNormalizeUrlAsync(url);
+    } finally {
+      analysisTimings.urlValidationMs = Number((performance.now() - phaseStartedAt).toFixed(1));
+    }
     if (!urlValidation.isValid || !urlValidation.normalizedUrl) {
       return res.status(400).json({
         success: false,
@@ -287,7 +324,14 @@ async function startServer() {
     }
 
     // Check Upstash Redis Cache for existing analysis
-    const cachedMetadata = await redisManager.getCachedMetadata(urlValidation.normalizedUrl);
+    phaseStartedAt = performance.now();
+    let cachedMetadata;
+    try {
+      cachedMetadata = await redisManager.getCachedMetadata(urlValidation.normalizedUrl);
+    } finally {
+      analysisTimings.cacheLookupMs = Number((performance.now() - phaseStartedAt).toFixed(1));
+    }
+    cacheOutcome = cachedMetadata ? 'hit' : 'miss';
     if (cachedMetadata) {
       let parsedNormUrl: URL | null = null;
       try {
@@ -307,6 +351,7 @@ async function startServer() {
         if (!currentVideoId) {
           // Cached entry is corrupted or source URL has no valid ID -> invalidate cache
           await redisManager.deleteCachedMetadata(urlValidation.normalizedUrl);
+          cacheOutcome = 'miss';
         } else {
           // Reconstruct and strictly enforce YouTube embedUrl matching currentVideoId
           cachedMetadata.id = `yt_${currentVideoId}`;
@@ -359,6 +404,10 @@ async function startServer() {
           },
         });
       }
+      const allowedProviderIds = ['direct', 'youtube', 'vimeo', 'soundcloud', 'wikimedia'] as const;
+      providerId = (allowedProviderIds as readonly string[]).includes(provider.id)
+        ? provider.id as typeof allowedProviderIds[number]
+        : 'other';
 
       // Check if provider is enabled in settings
       const setting = db.settings.providers.find(p => p.id === provider.id);
@@ -373,7 +422,13 @@ async function startServer() {
         });
       }
 
-      const metadata = await provider.analyze(parsedUrl);
+      phaseStartedAt = performance.now();
+      let metadata;
+      try {
+        metadata = await provider.analyze(parsedUrl);
+      } finally {
+        analysisTimings.providerAnalysisMs = Number((performance.now() - phaseStartedAt).toFixed(1));
+      }
       metadata.sourcePageUrl = metadata.sourcePageUrl || parsedUrl.toString();
       metadata.thumbnailUrl = metadata.thumbnailUrl || metadata.thumbnail;
 
@@ -422,12 +477,17 @@ async function startServer() {
           quality: '360p Mobile',
           formatType: 'video',
         }).catch(err => {
-          console.warn('[Preview Pre-warm Notice]:', err.message);
+          console.warn('[Preview Pre-warm Notice]:', sanitizeLogMessage(String(err?.message || err)).slice(0, 1000));
         });
       }
 
       // Save to Upstash Redis Cache (TTL: 1 hour)
-      await redisManager.setCachedMetadata(urlValidation.normalizedUrl, metadata, 3600);
+      phaseStartedAt = performance.now();
+      try {
+        await redisManager.setCachedMetadata(urlValidation.normalizedUrl, metadata, 3600);
+      } finally {
+        analysisTimings.cachePersistWaitMs = Number((performance.now() - phaseStartedAt).toFixed(1));
+      }
 
       db.addAuditLog('URL_ANALYZED', req.ip || '127.0.0.1', `Analyzed URL: ${parsedUrl.hostname} (${metadata.title})`);
 
@@ -437,7 +497,7 @@ async function startServer() {
         error: null,
       });
     } catch (err: any) {
-      console.warn('[Analyze Notice]:', err?.message || err);
+      console.warn('[Analyze Notice]:', sanitizeLogMessage(String(err?.message || err)).slice(0, 1000));
       const errMsg = err.message || '';
       let errorCode = 'ANALYSIS_FAILED';
       let clientMsg = 'Unable to retrieve media metadata from this link. Please verify the URL.';
@@ -480,7 +540,20 @@ async function startServer() {
         },
       });
     }
-  });
+    } finally {
+      try {
+        console.info(JSON.stringify({
+          event: 'analysis_timing',
+          totalMs: Number((performance.now() - analysisStartedAt).toFixed(1)),
+          ...analysisTimings,
+          cacheOutcome,
+          providerId,
+        }));
+      } catch {
+        // Timing logs are best-effort and must not affect the response.
+      }
+    }
+  }), createAnalysisErrorHandler());
 
   // ==========================================
   // 1.1 POST /api/social-download (All In One Social API Gateway)
@@ -532,7 +605,7 @@ async function startServer() {
         error: null,
       });
     } catch (err: any) {
-      console.warn('[Social Download Endpoint Notice]:', err.message);
+      console.warn('[Social Download Endpoint Notice]:', sanitizeLogMessage(String(err?.message || err)).slice(0, 1000));
       return res.status(500).json({
         success: false,
         data: null,
@@ -1156,7 +1229,7 @@ async function startServer() {
         fs.createReadStream(resolvedFilePath).pipe(res);
       }
     } catch (err: any) {
-      console.warn('[Download Stream Notice]:', err?.message || err);
+      console.warn('[Download Stream Notice]:', sanitizeLogMessage(String(err?.message || err)).slice(0, 1000));
       if (!res.headersSent) {
         res.status(500).json({
           success: false,
@@ -1237,7 +1310,7 @@ async function startServer() {
 
       fs.createReadStream(localFilePath).pipe(res);
     } catch (err: any) {
-      console.warn('[Stream Token Notice]:', err?.message || err);
+      console.warn('[Stream Token Notice]:', sanitizeLogMessage(String(err?.message || err)).slice(0, 1000));
       if (!res.headersSent) {
         res.status(500).json({
           success: false,
@@ -1414,7 +1487,7 @@ async function startServer() {
         fs.createReadStream(previewFilePath).pipe(res);
       }
     } catch (err: any) {
-      console.warn('[Video Preview Stream Notice]:', err?.message || err);
+      console.warn('[Video Preview Stream Notice]:', sanitizeLogMessage(String(err?.message || err)).slice(0, 1000));
       if (!res.headersSent) {
         res.status(500).json({
           success: false,
@@ -1523,52 +1596,13 @@ async function startServer() {
   // ==========================================
   // 9. DMCA / Abuse Report Endpoint
   // ==========================================
-  const dmcaSchema = z.object({
-    complainantName: z.string().min(2),
-    email: z.string().email(),
-    organization: z.string().optional(),
-    targetUrl: z.string().url(),
-    copyrightWorkDescription: z.string().min(10),
-    ownershipProofDescription: z.string().min(10),
-    reason: z.string().min(5),
-    goodFaithStatement: z.literal(true),
-    accuracyStatement: z.literal(true),
-  });
-
-  app.post('/api/reports', (req, res) => {
-    const parseResult = dmcaSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'INVALID_DMCA_FORM', message: 'All required legal declarations must be checked.' },
-      });
-    }
-
-    const data = parseResult.data;
-    const reportId = `dmca_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const now = new Date().toISOString();
-
-    const report = {
-      id: reportId,
-      ...data,
-      status: 'PENDING' as const,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    db.dmcaReports.set(reportId, report);
-    postgresManager.saveDmcaReport(report).catch(() => {});
-    db.addAuditLog('DMCA_FILED', req.ip || '127.0.0.1', `DMCA notice filed for ${data.targetUrl} by ${data.complainantName}`);
-
-    return res.json({
-      success: true,
-      data: {
-        reportId,
-        message: 'Your notice has been registered and routed to our legal compliance officer.',
-      },
-      error: null,
-    });
-  });
+  app.post('/api/reports', createDmcaReportHandler({
+    reports: db.dmcaReports,
+    save: (report) => db.persistenceMode === 'postgres'
+      ? postgresManager.saveDmcaReport(report)
+      : Promise.resolve(true),
+    audit: (report, ip) => db.addAuditLog('DMCA_FILED', ip, `DMCA notice filed for ${report.targetUrl} by ${report.complainantName}`),
+  }));
 
   // ==========================================
   // 10. Contact Message Endpoint
@@ -2179,7 +2213,7 @@ async function startServer() {
   // Dynamic sitemap.xml generator (Always in sync with database & tools)
   // ==========================================
   app.get('/sitemap.xml', (req, res) => {
-    const origin = 'https://videofetch.app';
+    const origin = 'https://videofetch-docker.onrender.com';
     const staticRoutes = [
       { path: '', priority: '1.0', changefreq: 'daily' },
       { path: '/video-downloader', priority: '0.9', changefreq: 'weekly' },
@@ -2189,14 +2223,9 @@ async function startServer() {
       { path: '/thumbnail-downloader', priority: '0.8', changefreq: 'weekly' },
       { path: '/subtitle-downloader', priority: '0.7', changefreq: 'weekly' },
       { path: '/4k-video-downloader', priority: '0.8', changefreq: 'weekly' },
-      { path: '/youtube-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/youtube-video-downloader', priority: '0.8', changefreq: 'weekly' },
       { path: '/youtube-shorts-downloader', priority: '0.8', changefreq: 'weekly' },
-      { path: '/tiktok-video-downloader', priority: '0.8', changefreq: 'weekly' },
-      { path: '/instagram-video-downloader', priority: '0.8', changefreq: 'weekly' },
-      { path: '/x-video-downloader', priority: '0.8', changefreq: 'weekly' },
       { path: '/vimeo-video-downloader', priority: '0.7', changefreq: 'weekly' },
-      { path: '/pinterest-video-downloader', priority: '0.7', changefreq: 'weekly' },
-      { path: '/bilibili-video-downloader', priority: '0.7', changefreq: 'weekly' },
       { path: '/supported-platforms', priority: '0.7', changefreq: 'monthly' },
       { path: '/how-it-works', priority: '0.7', changefreq: 'monthly' },
       { path: '/faq', priority: '0.7', changefreq: 'monthly' },
@@ -2207,25 +2236,21 @@ async function startServer() {
       { path: '/terms', priority: '0.6', changefreq: 'monthly' },
       { path: '/dmca', priority: '0.7', changefreq: 'monthly' },
       { path: '/copyright', priority: '0.6', changefreq: 'monthly' },
-      { path: '/security', priority: '0.6', changefreq: 'monthly' },
-      { path: '/status', priority: '0.5', changefreq: 'daily' },
-      { path: '/changelog', priority: '0.5', changefreq: 'weekly' },
     ];
 
     const blogPosts = Array.from(db.blogPosts.values());
     const blogUrls = blogPosts
-      .map(
-        post => `  <url>
-    <loc>${origin}/blog/${post.slug}</loc>
-    <lastmod>${
-      post.publishedAt
-        ? new Date(post.publishedAt).toISOString().split('T')[0]
-        : new Date().toISOString().split('T')[0]
-    }</lastmod>
-    <changefreq>monthly</changefreq>
+      .map(post => {
+        const publishedDate = post.publishedAt ? new Date(post.publishedAt) : null;
+        const lastmod = publishedDate && Number.isFinite(publishedDate.getTime())
+          ? `    <lastmod>${publishedDate.toISOString().split('T')[0]}</lastmod>\n`
+          : '';
+        return `  <url>
+    <loc>${origin}/blog/${encodeURIComponent(post.slug)}</loc>
+${lastmod}    <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>`
-      )
+      })
       .join('\n');
 
     const staticUrls = staticRoutes
@@ -2271,6 +2296,15 @@ ${blogUrls}
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`VideoFetch Server running on http://0.0.0.0:${PORT}`);
   });
+
+  const shutdown = () => {
+    ytDlpService.stopAllProcesses();
+    httpServer.close(() => process.exit(0));
+    const forceExit = setTimeout(() => process.exit(1), 5000);
+    forceExit.unref();
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 }
 
 startServer().catch(err => {

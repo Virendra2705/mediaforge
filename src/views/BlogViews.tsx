@@ -3,7 +3,6 @@ import {
   BookOpen,
   Calendar,
   Clock,
-  User,
   Tag,
   ArrowLeft,
   Share2,
@@ -15,6 +14,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { AppRoute } from '../types';
 import { AdContainer } from '../components/ads/AdContainer';
+import { SEOHead } from '../components/SEOHead';
 
 interface BlogPostItem {
   id: string;
@@ -23,11 +23,12 @@ interface BlogPostItem {
   excerpt: string;
   content: string;
   category: string;
-  author: string;
   publishedAt: string;
   readTime: string;
   tags: string[];
   featuredImage: string;
+  seoTitle?: string;
+  seoDescription?: string;
 }
 
 export const BlogListView: React.FC = () => {
@@ -55,6 +56,11 @@ export const BlogListView: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-10">
+      <SEOHead
+        title="Guides and Media Articles | VideoFetch"
+        description="Read practical guides about media formats, audio quality, video codecs, and responsible use."
+        canonicalPath="/blog"
+      />
       {/* Header */}
       <div className="text-center max-w-2xl mx-auto space-y-3">
         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
@@ -125,9 +131,9 @@ export const BlogListView: React.FC = () => {
               </div>
             </div>
 
-            {/* Footer / Author */}
+            {/* Article metadata */}
             <div className="p-5 pt-0 flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 mt-4 pt-3 text-xs text-slate-500">
-              <span className="truncate">{post.author}</span>
+              <span>{new Date(post.publishedAt).toLocaleDateString()}</span>
               <span className="font-medium text-blue-600 dark:text-blue-400 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
                 Read Article <ChevronRight className="w-3.5 h-3.5" />
               </span>
@@ -158,6 +164,12 @@ export const BlogPostView: React.FC<{ slug: string }> = ({ slug }) => {
   if (!post) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-20 text-center space-y-4">
+        <SEOHead
+          title="Article unavailable | VideoFetch"
+          description="This article is unavailable. Visit the VideoFetch guides page to browse available articles."
+          canonicalPath={`/blog/${slug}`}
+          noindex
+        />
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Article Not Found</h2>
         <p className="text-sm text-slate-500">The requested guide could not be located.</p>
         <button
@@ -179,6 +191,12 @@ export const BlogPostView: React.FC<{ slug: string }> = ({ slug }) => {
 
   return (
     <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+      <SEOHead
+        title={post.seoTitle || post.title}
+        description={post.seoDescription || post.excerpt}
+        canonicalPath={`/blog/${post.slug}`}
+        ogType="article"
+      />
       {/* Breadcrumb Navigation */}
       <div className="flex items-center gap-2 text-xs text-slate-500">
         <button onClick={() => setRoute('/')} className="hover:text-slate-800 dark:hover:text-slate-200">
@@ -208,21 +226,9 @@ export const BlogPostView: React.FC<{ slug: string }> = ({ slug }) => {
           {post.title}
         </h1>
 
-        {/* Author / Metadata Row */}
+        {/* Article metadata */}
         <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200">
-              {post.author.charAt(0)}
-            </div>
-            <div>
-              <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                {post.author}
-              </div>
-              <div className="text-xs text-slate-500">
-                Published {new Date(post.publishedAt).toLocaleDateString()}
-              </div>
-            </div>
-          </div>
+          <div className="text-xs text-slate-500">Published {new Date(post.publishedAt).toLocaleDateString()}</div>
 
           <div className="flex items-center gap-2">
             <button

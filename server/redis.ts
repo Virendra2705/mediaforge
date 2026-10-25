@@ -29,6 +29,23 @@ function sanitizeEnvValue(raw?: string): string {
   return val;
 }
 
+export type RateLimitFailurePolicy = 'closed' | 'local';
+
+export function withRateLimitTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Redis rate-limit operation timed out.')), timeoutMs);
+    operation.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+export function getRateLimitFailurePolicy(nodeEnv = process.env.NODE_ENV, configured = process.env.RATE_LIMIT_FAILURE_POLICY): RateLimitFailurePolicy {
+  if (configured === 'closed' || configured === 'local') return configured;
+  return nodeEnv === 'production' ? 'closed' : 'local';
+}
+
 class RedisManager {
   private client: Redis | null = null;
   public isConnected: boolean = false;
@@ -218,27 +235,27 @@ class RedisManager {
     // Try Redis Rate Limiting
     if (this.client) {
       try {
-        const key = `mf:ratelimit:${ip}`;
-        const count = await this.client.incr(key);
-
-        if (count === 1) {
-          await this.client.expire(key, windowSeconds);
-        }
-
-        const ttl = await this.client.ttl(key);
-        const allowed = count <= maxRequests;
-        const remaining = Math.max(0, maxRequests - count);
-
+        const result = await withRateLimitTimeout((async () => {
+          const key = `mf:ratelimit:${ip}`;
+          const count = await this.client!.incr(key);
+          if (count === 1) await this.client!.expire(key, windowSeconds);
+          const ttl = await this.client!.ttl(key);
+          return {
+            allowed: count <= maxRequests,
+            remaining: Math.max(0, maxRequests - count),
+            resetInSeconds: ttl > 0 ? ttl : windowSeconds,
+          };
+        })(), 2_000);
         this.isConnected = true;
-        return {
-          allowed,
-          remaining,
-          resetInSeconds: ttl > 0 ? ttl : windowSeconds,
-        };
+        return result;
       } catch (err: any) {
         this.isConnected = false;
         this.connectionError = err.message;
       }
+    }
+
+    if (getRateLimitFailurePolicy() === 'closed') {
+      throw new Error('Distributed rate limiting is unavailable.');
     }
 
     // In-memory fallback rate limiter

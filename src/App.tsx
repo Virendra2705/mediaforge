@@ -10,6 +10,7 @@ import { AuthModal } from './components/AuthModal';
 import { ToastContainer, CookieBanner } from './components/ToastAndCookie';
 import { HomeView } from './views/HomeView';
 import { NotFoundView } from './views/NotFoundView';
+import { SEOHead } from './components/SEOHead';
 import { ShieldAlert, KeyRound } from 'lucide-react';
 
 type ViewModule = Record<string, React.ComponentType<any>>;
@@ -162,6 +163,14 @@ const MainRouter: React.FC = () => {
 
   return (
     <div className="vf-app-shell min-h-screen flex flex-col text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-500 selection:text-white transition-colors duration-300 relative">
+      {(route === '/dashboard' || route === '/admin' || route.startsWith('/admin/')) && (
+        <SEOHead
+          title="Private Workspace | VideoFetch"
+          description="A private VideoFetch account or administration page."
+          canonicalPath={route}
+          noindex
+        />
+      )}
       <AdSenseScript />
       <AtmosphericBackground />
       <Header />

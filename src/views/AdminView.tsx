@@ -21,7 +21,7 @@ import {
 import { useApp } from '../context/AppContext';
 
 export const AdminView: React.FC = () => {
-  const { addToast, authToken } = useApp();
+  const { addToast } = useApp();
   const [stats, setStats] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
   const [complaints, setComplaints] = useState<any[]>([]);
@@ -32,7 +32,7 @@ export const AdminView: React.FC = () => {
   const [testingDb, setTestingDb] = useState(false);
   const [testingRedis, setTestingRedis] = useState(false);
 
-  const authHeaders: Record<string, string> = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+  const authHeaders: Record<string, string> = {};
 
   // Provider states
   const [providerStatuses, setProviderStatuses] = useState({
