@@ -1,1 +1,2 @@
-# No verified publisher record is included in this ads.txt file.
+# VideoFetch — Google AdSense Authorized Digital Sellers (ads.txt)
+google.com, pub-9353861275360716, DIRECT, f08c47fec0942fa0
