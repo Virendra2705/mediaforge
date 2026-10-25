@@ -10,7 +10,8 @@ export const NotFoundView: React.FC = () => {
     <div className="min-h-[70vh] flex items-center justify-center px-4 py-16">
       <SEOHead
         title="Page Not Found (404) | VideoFetch"
-        description="The page you requested could not be found. Explore our fast video downloader and media tools."
+        description="The requested page could not be found. Return to the VideoFetch home page or browse supported media sources."
+        canonicalPath={window.location.pathname}
         noindex={true}
       />
 

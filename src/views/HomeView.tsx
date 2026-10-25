@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { ArrowDownToLine, AudioLines, Captions, Check, ChevronRight, Clapperboard, LockKeyhole, Scissors, Sparkles, Video, WandSparkles } from 'lucide-react';
+import { ArrowDownToLine, AudioLines, Captions, Check, ChevronRight, Clapperboard, Globe, Scissors, Sparkles, Video, WandSparkles } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { UrlInputBar } from '../components/UrlInputBar';
 import { MediaResultCard } from '../components/MediaResultCard';
 import { AdContainer } from '../components/ads/AdContainer';
 import { AnimatedMediaIcon } from '../components/AnimatedMediaIcon';
 import { MediaWorkflowAnimation } from '../components/MediaWorkflowAnimation';
+import { SEOHead } from '../components/SEOHead';
 
 const capabilities = [
   { icon: Video, title: 'Video, your way', text: 'Choose from the video formats and resolutions available for your link.' },
@@ -48,6 +49,11 @@ export const HomeView: React.FC = () => {
 
   return (
     <div className="vf-home" ref={homeRef}>
+      <SEOHead
+        title="VideoFetch | Tools for Supported Video and Audio"
+        description="Analyze supported public media links, review the formats available from each source, and prepare media you are authorized to use."
+        canonicalPath="/"
+      />
       <section className="vf-hero" aria-labelledby="home-title">
         <div className="vf-hero-grid" aria-hidden="true" />
         <div className="vf-hero-orbit vf-hero-orbit-one" aria-hidden="true" />
@@ -67,7 +73,7 @@ export const HomeView: React.FC = () => {
             <p>Bring a link. Choose the version you need. VideoFetch handles the rest.</p>
           </div>
           <div className="vf-downloader vf-reveal vf-reveal-2">
-            <div className="vf-downloader-topline"><span><WandSparkles size={15} /> Start with a link</span><span className="vf-private"><LockKeyhole size={13} /> Private by design</span></div>
+            <div className="vf-downloader-topline"><span><WandSparkles size={15} /> Start with a link</span><span className="vf-private"><Globe size={13} /> Supported public links</span></div>
             <UrlInputBar />
             <div className="vf-supported-note"><span>Works with supported public media links</span><span className="vf-note-separator" /><span>Use content you own or have permission to save</span></div>
           </div>

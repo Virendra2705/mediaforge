@@ -86,7 +86,7 @@ export class DirectMediaProvider implements MediaProvider {
       ) {
         throw err;
       }
-      console.log('[DirectMediaProvider] Notice inspecting URL:', err.message);
+      console.log('[DirectMediaProvider] Notice: inspection failed with a non-media/network error.');
     }
 
     const title = decodeURIComponent(filename.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '));

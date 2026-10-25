@@ -22,6 +22,7 @@ import { useApp } from '../context/AppContext';
 import { UrlInputBar } from '../components/UrlInputBar';
 import { MediaResultCard } from '../components/MediaResultCard';
 import { AdContainer } from '../components/ads/AdContainer';
+import { SEOHead } from '../components/SEOHead';
 
 // 1. YOUTUBE / VIDEO DOWNLOADER VIEW
 export const YoutubeDownloaderView: React.FC = () => {
@@ -57,6 +58,11 @@ export const Mp3ConverterView: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <SEOHead
+        title="Video to MP3 Converter | VideoFetch"
+        description="Review audio formats available for supported media links and prepare an authorized audio export."
+        canonicalPath="/audio-downloader"
+      />
       <UrlInputBar
         customHeading="High-Fidelity Video to MP3 Converter"
         customSubtitle="Extract pristine acoustic streams, normalize stereo channels, and transcode to 320 kbps MP3."
@@ -164,6 +170,11 @@ export const Mp3ConverterView: React.FC = () => {
 export const Mp4DownloaderView: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <SEOHead
+        title="MP4 Video Downloader | VideoFetch"
+        description="Review video formats and resolutions available from supported media sources. Options depend on the original source."
+        canonicalPath="/video-downloader"
+      />
       <UrlInputBar
         customHeading="Lossless Video to MP4 Downloader"
         customSubtitle="Select between 360p, 720p HD, 1080p Full HD, and 4K Ultra HD video streams."
@@ -189,6 +200,11 @@ export const ThumbnailDownloaderView: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <SEOHead
+        title="Media Thumbnail Downloader | VideoFetch"
+        description="View and save thumbnail images made available by supported media sources. Image options depend on the source."
+        canonicalPath="/thumbnail-downloader"
+      />
       <UrlInputBar
         customHeading="HD & 4K Thumbnail Extractor"
         customSubtitle="Retrieve high-resolution cover artwork, poster frames, and thumbnails in original dimensions."
@@ -275,6 +291,11 @@ export const SubtitleDownloaderView: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <SEOHead
+        title="Subtitle and Caption Downloads | VideoFetch"
+        description="Check for captions provided by a supported media source and download available subtitle formats."
+        canonicalPath="/subtitle-downloader"
+      />
       <UrlInputBar
         customHeading="Subtitle & Closed Caption Downloader"
         customSubtitle="Extract subtitles in SRT, WebVTT, and TXT formats for accessible offline viewing and translation."
@@ -407,6 +428,11 @@ export const VideoTrimmerView: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <SEOHead
+        title="Video and Audio Trimmer | VideoFetch"
+        description="Choose a clip range from supported media and prepare an authorized video or audio export."
+        canonicalPath="/video-trimmer"
+      />
       <UrlInputBar
         customHeading="Interactive Video & Audio Trimmer"
         customSubtitle="Set keyframe boundaries, preview clips in real time, and export lossless MP4 video or MP3 audio cuts."

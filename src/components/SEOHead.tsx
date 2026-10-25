@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
 
+const SEO_ORIGIN = 'https://videofetch-docker.onrender.com';
+
 export interface BreadcrumbItem {
   name: string;
   url: string;
@@ -57,8 +59,9 @@ export const SEOHead: React.FC<SEOHeadProps> = ({
     setMetaTag('name', 'description', description);
 
     // 4. Update Canonical Tag
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://videofetch.app';
-    const cleanPath = canonicalPath.startsWith('/') ? canonicalPath : `/${canonicalPath}`;
+    const origin = SEO_ORIGIN;
+    const normalizedCanonicalPath = canonicalPath.replace(/\/+$/, '') || '/';
+    const cleanPath = normalizedCanonicalPath.startsWith('/') ? normalizedCanonicalPath : `/${normalizedCanonicalPath}`;
     const fullCanonicalUrl = `${origin}${cleanPath === '/' ? '' : cleanPath}`;
 
     let canonicalLink = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
@@ -77,19 +80,23 @@ export const SEOHead: React.FC<SEOHeadProps> = ({
     }
 
     // 6. Update OpenGraph Tags
+    const absoluteOgImage = new URL(ogImage, SEO_ORIGIN).toString();
     setMetaTag('property', 'og:site_name', 'VideoFetch');
     setMetaTag('property', 'og:type', ogType);
+    setMetaTag('property', 'og:url', fullCanonicalUrl);
     setMetaTag('property', 'og:title', `${title}${brandSuffix}`);
     setMetaTag('property', 'og:description', description);
-    setMetaTag('property', 'og:url', fullCanonicalUrl);
-    setMetaTag('property', 'og:image', ogImage.startsWith('http') ? ogImage : `${origin}${ogImage}`);
+    setMetaTag('property', 'og:image', absoluteOgImage);
+    setMetaTag('property', 'og:image:type', absoluteOgImage.toLowerCase().split('?')[0].endsWith('.svg') ? 'image/svg+xml' : 'image/jpeg');
+    setMetaTag('property', 'og:image:width', '1200');
+    setMetaTag('property', 'og:image:height', '630');
+    setMetaTag('property', 'og:image:alt', 'VideoFetch media tools for supported video and audio links');
 
     // 7. Update Twitter Card Tags
     setMetaTag('name', 'twitter:card', 'summary_large_image');
-    setMetaTag('name', 'twitter:site', '@videofetch');
     setMetaTag('name', 'twitter:title', `${title}${brandSuffix}`);
     setMetaTag('name', 'twitter:description', description);
-    setMetaTag('name', 'twitter:image', ogImage.startsWith('http') ? ogImage : `${origin}${ogImage}`);
+    setMetaTag('name', 'twitter:image', absoluteOgImage);
 
     // 8. Inject Dynamic Schema.org JSON-LD
     const jsonLdId = 'videofetch-dynamic-jsonld';

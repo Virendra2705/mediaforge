@@ -40,7 +40,6 @@ declare global {
   namespace Express {
     interface Request {
       user?: SessionUser | null;
-      sessionToken?: string | null;
     }
   }
 }
@@ -80,6 +79,7 @@ function base64UrlDecode(input: string): string {
  * Issue a cryptographically signed session token (HMAC-SHA256)
  */
 export function createSessionToken(user: SessionUser, ttlHours = 72): string {
+  if (!Number.isFinite(ttlHours) || ttlHours <= 0 || ttlHours > 72) throw new Error('Session lifetime must be between 0 and 72 hours.');
   const secret = getAuthSecret();
   const header = { alg: 'HS256', typ: 'JWT' };
   const nowSec = Math.floor(Date.now() / 1000);
@@ -124,6 +124,7 @@ export function verifySessionToken(token?: string | null): SessionUser | null {
     // Decode the submitted signature from base64url to raw bytes
     let sigStr = signatureB64.replace(/-/g, '+').replace(/_/g, '/');
     while (sigStr.length % 4 !== 0) sigStr += '=';
+    if (!/^[A-Za-z0-9_-]{43}$/.test(signatureB64)) return null;
     const submittedDigest = Buffer.from(sigStr, 'base64');
 
     if (
@@ -134,12 +135,19 @@ export function verifySessionToken(token?: string | null): SessionUser | null {
     }
 
     const payloadStr = base64UrlDecode(payloadB64);
+    const header = JSON.parse(base64UrlDecode(headerB64));
+    if (!header || header.alg !== 'HS256' || header.typ !== 'JWT') return null;
     const claims: TokenClaims = JSON.parse(payloadStr);
 
     const nowSec = Math.floor(Date.now() / 1000);
-    if (claims.exp && nowSec > claims.exp) {
-      return null; // Token expired
-    }
+    if (!claims || typeof claims !== 'object' ||
+      typeof claims.sub !== 'string' || !claims.sub.trim() ||
+      typeof claims.name !== 'string' ||
+      typeof claims.email !== 'string' ||
+      !Number.isSafeInteger(claims.iat) || !Number.isSafeInteger(claims.exp) ||
+      claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.iat >= claims.exp ||
+      claims.exp - claims.iat > 72 * 3600 ||
+      (claims.tier !== undefined && claims.tier !== 'free' && claims.tier !== 'pro')) return null;
 
     // Only allow known, explicit roles — never derive role from any other claim
     const role = claims.role;
@@ -160,20 +168,12 @@ export function verifySessionToken(token?: string | null): SessionUser | null {
 }
 
 /**
- * Extract token from request headers (Authorization: Bearer <token>) or cookies.
+ * Extract the session token from the HttpOnly session cookie only.
  * Deliberately does NOT accept auth_token query parameters — session tokens
  * must not travel in URLs, which appear in server logs and browser history.
  */
 export function extractTokenFromRequest(req: Request): string | null {
-  const authHeader = req.headers['authorization'];
-  if (authHeader && typeof authHeader === 'string') {
-    const parts = authHeader.trim().split(' ');
-    if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
-      return parts[1];
-    }
-  }
-
-  // Check HttpOnly cookie: mf_session=<token>
+  // Browser sessions are cookie-only so credentials are never exposed to JavaScript.
   const cookieHeader = req.headers['cookie'];
   if (cookieHeader && typeof cookieHeader === 'string') {
     const cookies = cookieHeader.split(';').map((c) => c.trim());
@@ -185,6 +185,25 @@ export function extractTokenFromRequest(req: Request): string | null {
   }
 
   return null;
+}
+
+/** Reject cross-site state-changing browser requests when an Origin is supplied. */
+export function sameOriginMutationGuard(req: Request, res: Response, next: NextFunction): void {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) return next();
+  const origin = req.get('origin');
+  if (!origin) return next(); // Non-browser clients do not attach cookies automatically.
+  try {
+    const parsed = new URL(origin);
+    const expectedProtocol = process.env.NODE_ENV === 'production' ? 'https:' : req.protocol + ':';
+    if (parsed.host !== req.get('host') || parsed.protocol !== expectedProtocol) {
+      res.status(403).json({ success: false, error: { code: 'CSRF_REJECTED', message: 'Cross-origin request rejected.' } });
+      return;
+    }
+  } catch {
+    res.status(403).json({ success: false, error: { code: 'CSRF_REJECTED', message: 'Cross-origin request rejected.' } });
+    return;
+  }
+  next();
 }
 
 /**
@@ -203,18 +222,14 @@ export function sessionMiddleware(req: Request, res: Response, next: NextFunctio
         ? { id: account.id, name: account.name, email: account.email, role: account.role, tier: account.tier }
         : null;
       if (!account) {
-        req.sessionToken = null;
         next();
         return;
       }
-      req.sessionToken = token;
     } else {
       req.user = null;
-      req.sessionToken = null;
     }
   } else {
     req.user = null;
-    req.sessionToken = null;
   }
   next();
 }

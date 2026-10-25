@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "build:frontend": "vite build",
     "build:pages": "npm ci && vite build",
     "build": "vite build && node scripts/build-server.mjs",
     "start": "node server-build/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "test": "tsx server/regressionTests.ts",
+    "test:ssrf-proxy": "tsx server/regressionTests.ts --ssrf-proxy-only",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

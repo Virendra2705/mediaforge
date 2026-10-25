@@ -1,7 +1,94 @@
-import type { Application, Request, Response } from 'express';
+import type { Application, ErrorRequestHandler, Request, Response, RequestHandler } from 'express';
 import { z } from 'zod';
-import type { BlogPost } from './types.js';
+import type { BlogPost, DmcaReport } from './types.js';
 import { requireAdmin } from './auth.js';
+
+/** Forward async Express 4 route failures into the route's error middleware. */
+export function asyncRoute(handler: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    Promise.resolve().then(() => handler(req, res, next)).catch(next);
+  };
+}
+
+/** Return a stable, non-sensitive error body for failures outside the analyze route's own handling. */
+export function createAnalysisErrorHandler(): ErrorRequestHandler {
+  return (error, _req, res, next) => {
+    if (res.headersSent) return next(error);
+    return res.status(500).json({
+      success: false,
+      data: null,
+      error: {
+        code: 'ANALYSIS_FAILED',
+        message: 'Unable to retrieve media metadata from this link. Please verify the URL.',
+      },
+    });
+  };
+}
+
+const dmcaSchema = z.object({
+  complainantName: z.string().trim().min(2),
+  email: z.string().trim().email(),
+  organization: z.string().trim().optional(),
+  targetUrl: z.string().trim().url(),
+  copyrightWorkDescription: z.string().trim().min(10),
+  ownershipProofDescription: z.string().trim().min(10),
+  reason: z.string().trim().min(5),
+  goodFaithStatement: z.literal(true),
+  accuracyStatement: z.literal(true),
+});
+
+interface DmcaReportHandlerDependencies {
+  reports: Map<string, DmcaReport>;
+  save: (report: DmcaReport) => Promise<boolean | void>;
+  audit: (report: DmcaReport, ip: string) => void;
+}
+
+/** Shared production handler so local HTTP tests exercise the actual notice schema and persistence boundary. */
+export function createDmcaReportHandler({ reports, save, audit }: DmcaReportHandlerDependencies): RequestHandler {
+  return async (req, res) => {
+    const parsed = dmcaSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_DMCA_FORM', message: 'All required legal declarations must be checked.' },
+      });
+    }
+
+    const now = new Date().toISOString();
+    const report: DmcaReport = {
+      id: `dmca_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      ...parsed.data,
+      status: 'PENDING',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    try {
+      if (await save(report) === false) throw new Error('DMCA report persistence failed.');
+    } catch {
+      return res.status(503).json({
+        success: false,
+        error: { code: 'DMCA_STORAGE_UNAVAILABLE', message: 'The application could not confirm receipt. Please use the listed contact email.' },
+      });
+    }
+
+    reports.set(report.id, report);
+    try {
+      audit(report, req.ip || '127.0.0.1');
+    } catch {
+      // Audit logging must not turn an accepted report into a false failure response.
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        reportId: report.id,
+        message: 'Your notice has been registered for review.',
+      },
+      error: null,
+    });
+  };
+}
 
 /** Protect every diagnostic endpoint registered after this middleware. */
 export function registerDiagnosticAdminGate(app: Application): void {
@@ -118,4 +205,3 @@ export function createBlogPostHandler({ posts, save, audit }: BlogPostHandlerDep
     return res.status(201).json({ success: true, data: newPost });
   };
 }
-

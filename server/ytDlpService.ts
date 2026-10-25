@@ -26,6 +26,7 @@ import {
 import { fetchAndValidateMediaStream } from './upstreamValidator.js';
 
 const execFileAsync = util.promisify(execFile);
+const MAX_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
 
 /**
  * yt-dlp 2026.08.19 can fall back to the broken tv_downgraded client when
@@ -42,6 +43,38 @@ export function getYouTubeCookieCompatibilityArgs(sourceUrl: string, cookiesConf
   } catch {
     return [];
   }
+}
+
+/** In production yt-dlp must send every request through the operator-controlled egress proxy. */
+export function getYtDlpNetworkArgs(proxyRaw = process.env.YTDLP_PROXY_URL, nodeEnv = process.env.NODE_ENV): string[] {
+  if (!proxyRaw?.trim()) {
+    if (nodeEnv === 'production') throw new Error('YTDLP_PROXY_URL is required in production to constrain yt-dlp network egress.');
+    return [];
+  }
+  let proxy: URL;
+  try { proxy = new URL(proxyRaw); } catch { throw new Error('YTDLP_PROXY_URL must be a valid HTTP or HTTPS proxy URL.'); }
+  if (!['http:', 'https:'].includes(proxy.protocol) || proxy.username || proxy.password ||
+      (proxy.port && !['80', '443'].includes(proxy.port)) || proxy.pathname !== '/' || proxy.search || proxy.hash) {
+    throw new Error('YTDLP_PROXY_URL must use HTTP or HTTPS, standard ports, and no embedded credentials or path.');
+  }
+  return ['--proxy', proxy.toString()];
+}
+
+const AMBIENT_PROXY_ENV_VARS = [
+  'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy',
+] as const;
+
+export function getYtDlpChildEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const childEnvironment = { ...source };
+  for (const variable of AMBIENT_PROXY_ENV_VARS) delete childEnvironment[variable];
+  childEnvironment.NO_PROXY = '';
+  childEnvironment.no_proxy = '';
+  return childEnvironment;
+}
+
+export function appendBoundedProcessOutput(current: string, chunk: Buffer, maxBytes = 256 * 1024): string {
+  const remaining = Math.max(0, maxBytes - Buffer.byteLength(current));
+  return remaining > 0 ? current + chunk.toString('utf8', 0, remaining) : current;
 }
 
 export interface YtDlpErrorResult {
@@ -123,6 +156,32 @@ export class YtDlpService {
   } | null = null;
   private cachedVersion: string | null = null;
 
+  private signalProcessTree(proc: ChildProcess, signal: NodeJS.Signals): void {
+    if (process.platform !== 'win32' && proc.pid) {
+      try { process.kill(-proc.pid, signal); return; } catch {}
+    }
+    try { proc.kill(signal); } catch {}
+  }
+
+  private runJobTool(jobId: string, command: string, args: string[], timeout = 5 * 60 * 1000): Promise<{ stdout: string; stderr: string }> {
+    return new Promise((resolve, reject) => {
+      let child: ChildProcess;
+      const hardKillTimer = setTimeout(() => {
+        if (child && child.exitCode === null && child.signalCode === null) {
+          try { child.kill('SIGKILL'); } catch {}
+        }
+      }, timeout + 1_500);
+      hardKillTimer.unref?.();
+      child = execFile(command, args, { timeout, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+        clearTimeout(hardKillTimer);
+        if (this.activeProcesses.get(jobId) === child) this.activeProcesses.delete(jobId);
+        if (error) reject(error);
+        else resolve({ stdout: String(stdout), stderr: String(stderr) });
+      });
+      this.activeProcesses.set(jobId, child);
+    });
+  }
+
   private constructor() {}
 
   public static getInstance(): YtDlpService {
@@ -142,6 +201,7 @@ export class YtDlpService {
     type: 'executable' | 'python_module';
     resolvedPath: string;
   }> {
+    getYtDlpNetworkArgs();
     if (process.env.NODE_ENV === 'production') {
       const configuredPath = process.env.YTDLP_PATH?.trim();
       if (!configuredPath) {
@@ -360,7 +420,7 @@ export class YtDlpService {
         return this.detectedCommand;
       }
     } catch (dlErr: any) {
-      console.log('[YtDlpService] Binary provision attempt notice:', dlErr.message);
+      console.log('[YtDlpService] Binary provision attempt notice:', sanitizeLogMessage(String(dlErr?.message || dlErr)).slice(0, 1000));
     }
 
     // 6. If not found, return temporary none configuration without permanently locking cache
@@ -881,9 +941,11 @@ export class YtDlpService {
     ytdlArgs.push(targetUrl);
 
     try {
+      ytdlArgs.unshift(...getYtDlpNetworkArgs());
       const { stdout } = await execFileAsync(ytdl.command, ytdlArgs, {
-        maxBuffer: 30 * 1024 * 1024,
+        maxBuffer: 2 * 1024 * 1024,
         timeout: 30000,
+        env: getYtDlpChildEnvironment(process.env),
       });
 
       const trimmed = stdout.trim();
@@ -1025,7 +1087,7 @@ export class YtDlpService {
           rapidApiFallbackDetail = this.formatRapidApiFallbackFailure(rapidResult);
         }
       } catch (fallbackErr: any) {
-        console.log('[YtDlpService] RapidAPI fallback notice:', fallbackErr.message);
+        console.log('[YtDlpService] RapidAPI fallback notice:', sanitizeLogMessage(String(fallbackErr?.message || fallbackErr)).slice(0, 1000));
         rapidApiFallbackDetail = this.formatRapidApiFallbackFailure(null, fallbackErr);
       }
 
@@ -1053,22 +1115,22 @@ export class YtDlpService {
    * Cancel an active running job and clean up its process and directory
    */
   public cancelJobProcess(jobId: string): boolean {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(jobId)) return false;
     const proc = this.activeProcesses.get(jobId);
     if (proc) {
       try {
-        proc.kill('SIGTERM');
+        this.signalProcessTree(proc, 'SIGTERM');
         setTimeout(() => {
-          try {
-            if (!proc.killed) proc.kill('SIGKILL');
-          } catch {}
+          if (proc.exitCode === null && proc.signalCode === null) {
+            this.signalProcessTree(proc, 'SIGKILL');
+          }
         }, 1000);
       } catch {}
-      this.activeProcesses.delete(jobId);
     }
 
     // Clean up temporary job directory
     const jobDir = path.join(TEMP_MEDIA_DIR, jobId);
-    if (fs.existsSync(jobDir)) {
+    if (!proc && fs.existsSync(jobDir)) {
       try {
         fs.rmSync(jobDir, { recursive: true, force: true });
       } catch {}
@@ -1099,18 +1161,23 @@ export class YtDlpService {
       throw error;
     }
     const safeSourceUrl = sourceValidation.normalizedUrl;
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(jobId)) throw new Error('Invalid media job identifier.');
     const isAudioOnly = formatType === 'audio' || format === 'mp3' || format === 'm4a' || format === 'wav';
     const cleanFilename = sanitizeMediaFilename(title || 'media_asset', quality, format);
     
     // Isolated job directory: /tmp/media-jobs/{jobId}/ or path.join(TEMP_MEDIA_DIR, jobId)
     const jobDir = path.join(TEMP_MEDIA_DIR, jobId);
     if (!fs.existsSync(jobDir)) {
-      fs.mkdirSync(jobDir, { recursive: true });
+      fs.mkdirSync(jobDir, { recursive: true, mode: 0o700 });
+    }
+    if (fs.lstatSync(jobDir).isSymbolicLink() || !fs.realpathSync(jobDir).startsWith(`${fs.realpathSync(TEMP_MEDIA_DIR)}${path.sep}`)) {
+      throw new Error('Media job directory is not safely contained.');
     }
 
     const outputPath = path.join(jobDir, cleanFilename);
     const mimeType = getMimeTypeForFormat(format);
     const ytdl = await this.detectYtDlp();
+    if (this.activeProcesses.size >= 2) throw new Error('Media processing capacity is currently full.');
 
     // Controlled format selection policy:
     // Respects formats supported by application (mp4, webm, mp3, wav, m4a)
@@ -1139,7 +1206,8 @@ export class YtDlpService {
 
     const rawTemplate = path.join(jobDir, 'raw_stream.%(ext)s');
     const nodeRuntime = process.execPath || '/usr/local/bin/node';
-    const timeoutMs = (options.timeoutSeconds || parseInt(process.env.YTDLP_TIMEOUT_SECONDS || '120', 10)) * 1000;
+    const configuredTimeout = options.timeoutSeconds || Number.parseInt(process.env.YTDLP_TIMEOUT_SECONDS || '120', 10);
+    const timeoutMs = Math.max(30, Math.min(300, Number.isFinite(configuredTimeout) ? configuredTimeout : 120)) * 1000;
 
     const startTime = Date.now();
     let sourceHost = 'unknown';
@@ -1169,6 +1237,8 @@ export class YtDlpService {
       try {
         const ytdlArgs: string[] = [
           ...ytdl.argsPrefix,
+          ...getYtDlpNetworkArgs(),
+          '--no-cache-dir',
           '--js-runtimes',
           `node:${nodeRuntime}`,
           '--no-playlist',
@@ -1178,6 +1248,9 @@ export class YtDlpService {
           '2',
           '--fragment-retries',
           '2',
+          '--max-filesize',
+          '512M',
+          '--no-overwrites',
           '--socket-timeout',
           '20',
           ...getYouTubeCookieCompatibilityArgs(safeSourceUrl, Boolean(adminCookiesPath)),
@@ -1199,22 +1272,23 @@ export class YtDlpService {
         console.log(`[YtDlpService] Executing stream extraction (${attempt.name}) for Job ${jobId}`);
 
         await new Promise<void>((resolve, reject) => {
-          const proc = spawn(ytdl.command, ytdlArgs);
+          const proc = spawn(ytdl.command, ytdlArgs, {
+            env: getYtDlpChildEnvironment(process.env),
+            detached: process.platform !== 'win32',
+          });
           this.activeProcesses.set(jobId, proc);
 
           let stderrData = '';
           let stdoutData = '';
 
-          proc.stdout?.on('data', (d) => {
-            stdoutData += d.toString();
-          });
+          proc.stdout?.on('data', (d: Buffer) => { stdoutData = appendBoundedProcessOutput(stdoutData, d); });
 
-          proc.stderr?.on('data', (d) => {
-            stderrData += d.toString();
-          });
+          proc.stderr?.on('data', (d: Buffer) => { stderrData = appendBoundedProcessOutput(stderrData, d); });
 
           const timer = setTimeout(() => {
-            proc.kill('SIGTERM');
+            this.signalProcessTree(proc, 'SIGTERM');
+            const killTimer = setTimeout(() => { if (proc.exitCode === null && proc.signalCode === null) this.signalProcessTree(proc, 'SIGKILL'); }, 1000);
+            killTimer.unref?.();
             const timeoutErr: any = new Error('TIMEOUT: yt-dlp process exceeded time limit');
             timeoutErr.code = 'TIMEOUT';
             reject(timeoutErr);
@@ -1263,7 +1337,7 @@ export class YtDlpService {
                 audioArgs.push('-c:a', format === 'mp3' ? 'libmp3lame' : 'pcm_s16le');
               }
               audioArgs.push(outputPath);
-              await execFileAsync('ffmpeg', audioArgs);
+              await this.runJobTool(jobId, 'ffmpeg', audioArgs);
               try { fs.unlinkSync(rawPath); } catch {}
             } else if (trimParams) {
               const start = trimParams.startTime;
@@ -1287,7 +1361,7 @@ export class YtDlpService {
                 trimArgs.push('-an');
               }
               trimArgs.push('-movflags', '+faststart', outputPath);
-              await execFileAsync('ffmpeg', trimArgs);
+              await this.runJobTool(jobId, 'ffmpeg', trimArgs);
               try { fs.unlinkSync(rawPath); } catch {}
             } else {
               if (rawPath.endsWith('.mp4') && probe.hasVideo) {
@@ -1310,7 +1384,7 @@ export class YtDlpService {
                   remuxArgs.push('-an');
                 }
                 remuxArgs.push('-movflags', '+faststart', outputPath);
-                await execFileAsync('ffmpeg', remuxArgs);
+                await this.runJobTool(jobId, 'ffmpeg', remuxArgs);
                 try { fs.unlinkSync(rawPath); } catch {}
               }
             }
@@ -1379,7 +1453,7 @@ export class YtDlpService {
                       audioArgs.push('-c:a', format === 'mp3' ? 'libmp3lame' : 'pcm_s16le');
                     }
                     audioArgs.push(outputPath);
-                    await execFileAsync('ffmpeg', audioArgs);
+                    await this.runJobTool(jobId, 'ffmpeg', audioArgs);
                   } else if (trimParams) {
                     const start = trimParams.startTime;
                     const duration = Math.max(1, trimParams.endTime - trimParams.startTime);
@@ -1387,7 +1461,7 @@ export class YtDlpService {
                     if (probe.hasAudio) trimArgs.push('-c:a', 'aac', '-b:a', '128k');
                     else trimArgs.push('-an');
                     trimArgs.push('-movflags', '+faststart', outputPath);
-                    await execFileAsync('ffmpeg', trimArgs);
+                    await this.runJobTool(jobId, 'ffmpeg', trimArgs);
                   } else {
                     if (tempStreamFile.endsWith('.mp4') && probe.hasVideo) {
                       fs.renameSync(tempStreamFile, outputPath);
@@ -1396,7 +1470,7 @@ export class YtDlpService {
                       if (probe.hasAudio) remuxArgs.push('-c:a', 'aac', '-b:a', '128k');
                       else remuxArgs.push('-an');
                       remuxArgs.push('-movflags', '+faststart', outputPath);
-                      await execFileAsync('ffmpeg', remuxArgs);
+                      await this.runJobTool(jobId, 'ffmpeg', remuxArgs);
                     }
                   }
 
@@ -1408,7 +1482,7 @@ export class YtDlpService {
                   }
                 } catch (muxErr: any) {
                   rapidApiFallbackDetail = `muxing failed (${muxErr.message || 'ffmpeg processing error'})`;
-                  console.log(`[YtDlpService] RapidAPI multiplexing error for Job ${jobId}:`, muxErr.message);
+                  console.log(`[YtDlpService] RapidAPI multiplexing error for Job ${jobId}:`, sanitizeLogMessage(String(muxErr?.message || muxErr)).slice(0, 1000));
                 }
               }
             }
@@ -1423,7 +1497,7 @@ export class YtDlpService {
           rapidApiFallbackDetail = this.formatRapidApiFallbackFailure(rapidResult);
         }
       } catch (fallbackErr: any) {
-        console.log('[YtDlpService] RapidAPI stream resolution notice:', fallbackErr.message);
+      console.log('[YtDlpService] RapidAPI stream resolution notice:', sanitizeLogMessage(String(fallbackErr?.message || fallbackErr)).slice(0, 1000));
         rapidApiFallbackDetail = this.formatRapidApiFallbackFailure(null, fallbackErr);
       }
     }
@@ -1468,6 +1542,12 @@ export class YtDlpService {
       emptyErr.code = 'MEDIA_VALIDATION_FAILED';
       throw emptyErr;
     }
+    if (stat.size > MAX_MEDIA_FILE_BYTES) {
+      try { fs.unlinkSync(outputPath); } catch {}
+      const sizeErr: any = new Error('MEDIA_TOO_LARGE: Download exceeds the 512 MiB limit.');
+      sizeErr.code = 'MEDIA_TOO_LARGE';
+      throw sizeErr;
+    }
 
     // Validate container and streams with ffprobe
     const validation = await validateMediaFile(outputPath, isAudioOnly ? 'audio' : 'video');
@@ -1492,6 +1572,18 @@ export class YtDlpService {
       height: validation.probe?.height,
       codec: validation.probe?.vCodec || validation.probe?.aCodec,
     };
+  }
+
+  public stopAllProcesses(): void {
+    for (const proc of this.activeProcesses.values()) {
+      this.signalProcessTree(proc, 'SIGTERM');
+      const hardKillTimer = setTimeout(() => {
+        if (proc.exitCode === null && proc.signalCode === null) {
+          this.signalProcessTree(proc, 'SIGKILL');
+        }
+      }, 1_000);
+      hardKillTimer.unref?.();
+    }
   }
 }
 

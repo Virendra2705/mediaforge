@@ -15,6 +15,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { SEOHead } from '../components/SEOHead';
 
 // 1. SUPPORTED PLATFORMS VIEW
 export const SupportedPlatformsView: React.FC = () => {
@@ -22,14 +23,14 @@ export const SupportedPlatformsView: React.FC = () => {
 
   const providers = [
     {
-      name: 'YouTube (oEmbed & Public Metadata)',
+      name: 'YouTube',
       tag: 'oEmbed Compliant',
       icon: '▶️',
       color: 'border-red-500/30 bg-red-500/5',
       supportedUrlTypes: ['youtube.com/watch?v=...', 'youtu.be/...', 'youtube.com/shorts/...'],
-      supportedMediaTypes: ['Full HD MP4 (1080p, 720p, 480p)', 'Studio MP3 (320kbps, 192kbps)', 'HD Thumbnail Images', 'SRT/VTT Subtitles'],
-      limitations: 'Only publicly authorized metadata and non-copyright restricted streams can be processed. Private or membership content is strictly blocked.',
-      status: 'Active & Operational',
+      supportedMediaTypes: ['Video and audio formats returned for a supported link', 'Source-provided thumbnails and captions when available'],
+      limitations: 'Available formats depend on the source and may change. Private or access-controlled content is not supported.',
+      status: 'Provider implemented',
     },
     {
       name: 'Vimeo (Public API)',
@@ -37,9 +38,9 @@ export const SupportedPlatformsView: React.FC = () => {
       icon: '🎞️',
       color: 'border-blue-500/30 bg-blue-500/5',
       supportedUrlTypes: ['vimeo.com/...', 'player.vimeo.com/video/...'],
-      supportedMediaTypes: ['1080p Full HD MP4', '720p HD MP4', 'MP3 Audio Stream', 'High-res Poster Artwork'],
-      limitations: 'Requires public embed permission configured by the original video creator.',
-      status: 'Active & Operational',
+      supportedMediaTypes: ['Formats and metadata returned for an accessible public link'],
+      limitations: 'Availability depends on the source, its settings, and the provider response.',
+      status: 'Provider implemented',
     },
     {
       name: 'Direct Media & CDNs',
@@ -47,19 +48,19 @@ export const SupportedPlatformsView: React.FC = () => {
       icon: '🌐',
       color: 'border-emerald-500/30 bg-emerald-500/5',
       supportedUrlTypes: ['*.mp4', '*.webm', '*.mp3', '*.wav', '*.ogg', '*.m4a'],
-      supportedMediaTypes: ['Original Master Quality Video/Audio', 'Lossless WAV PCM', 'FLAC Audio Containers'],
-      limitations: 'Origin server must permit HTTP HEAD requests and standard cross-origin ranges.',
-      status: 'Active & Operational',
+      supportedMediaTypes: ['Video and audio formats supported by the source and processing pipeline'],
+      limitations: 'Only supported media types can be inspected; the source must be reachable and provide a valid media response.',
+      status: 'Provider implemented',
     },
     {
-      name: 'Wikimedia Commons & NASA Open Archives',
+      name: 'Wikimedia Commons',
       tag: 'Public Domain',
       icon: '🏛️',
       color: 'border-amber-500/30 bg-amber-500/5',
-      supportedUrlTypes: ['commons.wikimedia.org/...', 'archive.org/...', 'nasa.gov/...'],
-      supportedMediaTypes: ['4K Ultra HD Broadcasts', 'Archival Scientific Master Tapes', 'Multilingual Transcripts'],
-      limitations: 'Free educational public domain resources. No bandwidth restrictions.',
-      status: 'Active & Operational',
+      supportedUrlTypes: ['commons.wikimedia.org/...'],
+      supportedMediaTypes: ['Media formats and metadata returned for an accessible Commons file'],
+      limitations: 'Rights and licensing vary by file. Check the source page and comply with its terms.',
+      status: 'Provider implemented',
     },
     {
       name: 'SoundCloud (Public oEmbed)',
@@ -67,14 +68,19 @@ export const SupportedPlatformsView: React.FC = () => {
       icon: '🎵',
       color: 'border-orange-500/30 bg-orange-500/5',
       supportedUrlTypes: ['soundcloud.com/[artist]/[track]'],
-      supportedMediaTypes: ['320 kbps High Fidelity MP3', '256 kbps Studio MP3', 'Original Cover Art'],
-      limitations: 'Only public tracks with author permissions enabled.',
-      status: 'Active & Operational',
+      supportedMediaTypes: ['Metadata and formats returned for an accessible public track'],
+      limitations: 'Track availability and permitted use depend on the source and its terms.',
+      status: 'Provider implemented',
     },
   ];
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
+      <SEOHead
+        title="Supported Media Sources and Formats | VideoFetch"
+        description="Review the media sources and formats that VideoFetch currently supports, along with source-specific limitations."
+        canonicalPath="/supported-platforms"
+      />
       {/* Header */}
       <div className="text-center max-w-3xl mx-auto space-y-3">
         <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
@@ -84,7 +90,7 @@ export const SupportedPlatformsView: React.FC = () => {
           Supported Media Platforms
         </h1>
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed">
-          VideoFetch utilizes a modular provider adapter architecture to inspect and process public, authorized media with zero circumvention of platform terms.
+          The application includes providers for YouTube, Vimeo, SoundCloud, Wikimedia Commons, and supported direct media links. Availability and formats depend on each source.
         </p>
       </div>
 
@@ -173,43 +179,48 @@ export const HowItWorksView: React.FC = () => {
     {
       step: '01',
       title: 'Submit Permitted Media URL',
-      desc: 'Paste a video or audio link that you own or have explicit rights to save. The frontend performs instant syntax checking.',
+      desc: 'Paste a link from a supported source. The application checks its format and source before attempting analysis.',
       icon: <Globe className="w-6 h-6 text-blue-500" />,
     },
     {
       step: '02',
-      title: 'SSRF & Provider Verification',
-      desc: 'Our backend protects against SSRF attacks, validates against private network ranges, and routes the query to the dedicated provider adapter.',
+      title: 'URL and Source Checks',
+      desc: 'The server validates supported URLs and selects a matching provider. These checks reduce some risks but do not guarantee that every outbound-network risk is eliminated.',
       icon: <ShieldCheck className="w-6 h-6 text-emerald-500" />,
     },
     {
       step: '03',
-      title: 'Stream Demuxing & Format Analysis',
-      desc: 'The engine inspects container codecs (H.264, AV1, AAC), calculates exact resolutions, and estimates compressed file sizes.',
+      title: 'Format Analysis',
+      desc: 'For links the source can provide, the application returns available media details and formats. Results vary by source.',
       icon: <Zap className="w-6 h-6 text-indigo-500" />,
     },
     {
       step: '04',
-      title: 'Background Queue Processing',
-      desc: 'When an export is triggered, our worker demuxes audio tracks, transcodes to 320 kbps MP3 or cuts keyframes without server lag.',
+      title: 'Job Processing',
+      desc: 'If you request an available export, the application creates a processing job. Completion time and output options depend on the media and service resources.',
       icon: <Cpu className="w-6 h-6 text-violet-500" />,
     },
     {
       step: '05',
-      title: 'Signed Expiring Token & Cleanup',
-      desc: 'A secure, short-lived download token is created. After 15 minutes, temporary cache resources are automatically purged.',
+      title: 'Temporary Download',
+      desc: 'Generated download links are temporary. The application attempts cleanup after job expiry; storage-provider behavior may affect final deletion.',
       icon: <HardDrive className="w-6 h-6 text-amber-500" />,
     },
   ];
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
+      <SEOHead
+        title="How VideoFetch Works | VideoFetch"
+        description="Learn how to submit a supported media link, review available formats, and prepare an authorized download."
+        canonicalPath="/how-it-works"
+      />
       <div className="text-center max-w-2xl mx-auto space-y-3">
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
           How Media Processing Works
         </h1>
         <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400">
-          A high-performance, asynchronous pipeline built for speed, safety, and strict compliance.
+          A short overview of how supported links are checked, analyzed, and prepared for export.
         </p>
       </div>
 
@@ -266,39 +277,44 @@ export const FaqView: React.FC = () => {
       category: 'Legal & Compliance',
     },
     {
-      q: 'Why do download links expire after 15 minutes?',
-      a: 'For security, data protection, and storage hygiene, all generated download tokens are cryptographically signed with a 15-minute time-to-live (TTL). Once expired, temporary processing artifacts are permanently cleaned up from worker nodes.',
+      q: 'How long are download jobs available?',
+      a: 'Download jobs are assigned a 15-minute expiry. The application attempts to remove associated temporary media after expiry, but cleanup can depend on the storage provider and does not establish a universal deletion time.',
       category: 'Technical',
     },
     {
       q: 'What is the difference between 128 kbps and 320 kbps MP3?',
-      a: 'Bitrate measures acoustic data density. 128 kbps is standard web streaming quality, while 320 kbps preserves the full dynamic range, stereo separation, and high-frequency fidelity matching original studio recordings.',
+      a: 'Bitrate is the amount of data used per second of audio. A higher MP3 bitrate can reduce compression artifacts, but it cannot restore detail missing from the source audio.',
       category: 'Audio',
     },
     {
       q: 'Does VideoFetch work with 4K Ultra HD videos?',
-      a: 'Yes! When the source stream provides 4K (3840x2160) or 1080p Full HD master files, our analyzer extracts the original container formats without downscaling.',
+      a: 'Some supported sources may offer high-resolution formats. Available resolution and whether it can be exported depend on the source and processing path.',
       category: 'Video',
     },
     {
       q: 'How does the Video Trimmer work?',
-      a: 'The Video Trimmer uses HTML5 keyframe seeking on the client and fast stream cutting on the server. You can select exact start and end timestamps and export either a cropped MP4 video or an extracted MP3 audio snippet.',
+      a: 'The trimmer lets you choose a clip range from supported media and request an export. Exact boundaries and output formats depend on the source and selected processing option.',
       category: 'Tools',
     },
     {
       q: 'Can I download subtitles in multiple languages?',
-      a: 'Yes. If the media provider includes public closed captions or transcripts, VideoFetch extracts them in standard SRT, WebVTT, and plain text (TXT) formats.',
+      a: 'Captions are available only when a supported source provides them and the application can process them. Available subtitle formats depend on the source.',
       category: 'Subtitles',
     },
     {
-      q: 'Are there rate limits for anonymous users?',
-      a: 'Yes. To protect processing nodes from automated scrapers and abuse, anonymous users have a standard limit of 25 media analyses per hour. Authenticated accounts receive higher thresholds.',
+      q: 'Are there rate limits?',
+      a: 'Requests may be rate limited to protect the service. Limits can vary by deployment and are communicated when a request is rejected.',
       category: 'Usage',
     },
     {
       q: 'How do I submit a DMCA takedown complaint?',
-      a: 'If you are a copyright holder and believe a specific URL should not be processed by our platform, you can submit a notice via our /dmca page. Our legal team reviews complaints promptly.',
+      a: 'If you are a rights holder or authorized agent, use the notice form or contact address on the Copyright Policy page. A successful response confirms application receipt only; it does not promise a review timeline or outcome.',
       category: 'Legal & Compliance',
+    },
+    {
+      q: 'Which browsers and devices are supported?',
+      a: 'VideoFetch runs in a web browser and has no separate desktop or mobile app. No formal browser compatibility matrix is published; behavior can vary with browser capabilities, source restrictions, and network conditions.',
+      category: 'Compatibility',
     },
   ];
 
@@ -311,6 +327,11 @@ export const FaqView: React.FC = () => {
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
+      <SEOHead
+        title="Help and Frequently Asked Questions | VideoFetch"
+        description="Find answers about supported media links, available formats, temporary downloads, subtitles, and responsible use."
+        canonicalPath="/faq"
+      />
       <div className="text-center space-y-3">
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
           Frequently Asked Questions

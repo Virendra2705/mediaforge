@@ -153,11 +153,15 @@ class PostgresManager {
             copyright_work_description TEXT NOT NULL,
             ownership_proof_description TEXT NOT NULL,
             reason TEXT NOT NULL,
+            good_faith_statement BOOLEAN NOT NULL DEFAULT FALSE,
+            accuracy_statement BOOLEAN NOT NULL DEFAULT FALSE,
             status VARCHAR(32) DEFAULT 'PENDING',
             admin_notes TEXT,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
           );
+          ALTER TABLE dmca_reports ADD COLUMN IF NOT EXISTS good_faith_statement BOOLEAN NOT NULL DEFAULT FALSE;
+          ALTER TABLE dmca_reports ADD COLUMN IF NOT EXISTS accuracy_statement BOOLEAN NOT NULL DEFAULT FALSE;
 
           CREATE TABLE IF NOT EXISTS contact_messages (
             id VARCHAR(128) PRIMARY KEY,
@@ -376,14 +380,15 @@ class PostgresManager {
   }
 
   // --- DMCA Reports ---
-  public async saveDmcaReport(report: DmcaReport): Promise<void> {
-    if (!this.pool || !this.isConnected) return;
+  public async saveDmcaReport(report: DmcaReport): Promise<boolean> {
+    if (!this.pool || !this.isConnected) return false;
     try {
       await this.pool.query(
         `INSERT INTO dmca_reports (
           id, complainant_name, email, organization, target_url, copyright_work_description,
-          ownership_proof_description, reason, status, admin_notes, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          ownership_proof_description, reason, good_faith_statement, accuracy_statement,
+          status, admin_notes, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         ON CONFLICT (id) DO UPDATE SET
           status = EXCLUDED.status,
           admin_notes = EXCLUDED.admin_notes,
@@ -397,15 +402,19 @@ class PostgresManager {
           report.copyrightWorkDescription,
           report.ownershipProofDescription,
           report.reason,
+          report.goodFaithStatement,
+          report.accuracyStatement,
           report.status,
           report.adminNotes || null,
           new Date(report.createdAt),
           new Date(report.updatedAt),
         ]
       );
+      return true;
     } catch {
       this.markDisconnected();
       console.log('[PostgreSQL] Report persistence failed.');
+      return false;
     }
   }
 
@@ -422,8 +431,8 @@ class PostgresManager {
         copyrightWorkDescription: r.copyright_work_description,
         ownershipProofDescription: r.ownership_proof_description,
         reason: r.reason,
-        goodFaithStatement: true,
-        accuracyStatement: true,
+        goodFaithStatement: r.good_faith_statement === true,
+        accuracyStatement: r.accuracy_statement === true,
         status: r.status,
         adminNotes: r.admin_notes || undefined,
         createdAt: r.created_at.toISOString(),

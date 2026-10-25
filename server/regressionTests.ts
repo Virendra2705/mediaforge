@@ -3,6 +3,7 @@ import path from 'path';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import express from 'express';
 import { Readable } from 'node:stream';
 import {
@@ -33,9 +34,11 @@ import {
   requireAuth,
   getConfiguredAdminEmail,
   rejectUnverifiedPasswordRecovery,
+  sameOriginMutationGuard,
 } from './auth.js';
 import { validateAndNormalizeUrl, validateAndNormalizeUrlAsync } from './security.js';
-import { getYouTubeCookieCompatibilityArgs, ytDlpService } from './ytDlpService.js';
+import { appendBoundedProcessOutput, getYouTubeCookieCompatibilityArgs, getYtDlpChildEnvironment, getYtDlpNetworkArgs, ytDlpService } from './ytDlpService.js';
+import { getRateLimitFailurePolicy, withRateLimitTimeout } from './redis.js';
 import { createSafeHttpTransport, isGlobalAddress } from './outboundHttp.js';
 import { registerMediaEgressRoutes } from './mediaEgressRoutes.js';
 import { parseWithEasyDownApi } from './easyDownService.js';
@@ -44,7 +47,7 @@ import { authorizeJobRequest, previewJobAuthorizationMiddleware, registerJobLink
 import { generateDownloadToken, generateStorageSignedUrl, verifyStorageSignedToken } from './security.js';
 import { MediaJob } from './types.js';
 import { fetchRapidApiDetailed } from './socialDownload.js';
-import { createBlogPostHandler, registerDatabaseAvailabilityGate, registerDiagnosticAdminGate, registerPublicBlogReadRoutes, registerPublicOperationalRoutes } from './operationalSecurity.js';
+import { asyncRoute, createAnalysisErrorHandler, createBlogPostHandler, createDmcaReportHandler, registerDatabaseAvailabilityGate, registerDiagnosticAdminGate, registerPublicBlogReadRoutes, registerPublicOperationalRoutes } from './operationalSecurity.js';
 import { createAuthenticationRateLimiter, getTrustedClientAddress } from './authRateLimit.js';
 import { getPostgresSslOptions, markPostgresUnavailable, sanitizePostgresConnectionString } from './postgres.js';
 import { initializePersistenceMode, resolvePersistenceMode } from './db.js';
@@ -265,10 +268,13 @@ const tests: TestCase[] = [
       const hasRedactedCookies = sanitized.includes('--cookies [REDACTED]');
       const hasRedactedAuth = sanitized.includes('Authorization: [REDACTED]');
       const hasRedactedCookieHeader = sanitized.includes('Cookie: [REDACTED]');
-      const leakedSecret = sanitized.includes('/path/to/cookies.txt') || sanitized.includes('eyJhbGciOi') || sanitized.includes('SID=xyz');
+      const sanitizedUrl = sanitizeLogMessage('Provider failed for https://media.example.test/watch?id=private-id&token=private-token');
+      const hasRedactedUrl = sanitizedUrl.includes('[REDACTED_URL]');
+      const leakedSecret = sanitized.includes('/path/to/cookies.txt') || sanitized.includes('eyJhbGciOi') || sanitized.includes('SID=xyz') ||
+        sanitizedUrl.includes('media.example.test') || sanitizedUrl.includes('private-id') || sanitizedUrl.includes('private-token');
 
-      if (hasRedactedCookies && hasRedactedAuth && hasRedactedCookieHeader && !leakedSecret) {
-        return { passed: true, details: 'Cookies and bearer credentials safely redacted from logs.' };
+      if (hasRedactedCookies && hasRedactedAuth && hasRedactedCookieHeader && hasRedactedUrl && !leakedSecret) {
+        return { passed: true, details: 'Cookies, bearer credentials, and complete source URLs are redacted from logs.' };
       }
       return { passed: false, details: `Sanitization incomplete: "${sanitized}"` };
     },
@@ -485,6 +491,138 @@ const tests: TestCase[] = [
       }
 
       return { passed: false, details: 'Expired or forged token was not rejected.' };
+    },
+  },
+  {
+    name: 'AUTH SECURITY: strict signed session claims and cookie-only authentication',
+    run: async () => {
+      const key = process.env.AUTH_SECRET!;
+      const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+      const issue = (header: any, claims: any) => {
+        const content = `${encode(header)}.${encode(claims)}`;
+        return `${content}.${crypto.createHmac('sha256', key).update(content).digest('base64url')}`;
+      };
+      const now = Math.floor(Date.now() / 1000);
+      const baseClaims = { sub: 'strict-user', name: 'Strict User', email: 'strict@example.test', role: 'user', iat: now, exp: now + 3600 };
+      assert.ok(verifySessionToken(issue({ alg: 'HS256', typ: 'JWT' }, baseClaims)));
+      assert.equal(verifySessionToken(issue({ alg: 'none', typ: 'JWT' }, baseClaims)), null);
+      assert.equal(verifySessionToken(issue({ alg: 'HS256', typ: 'JWT' }, { ...baseClaims, exp: undefined })), null);
+      assert.equal(verifySessionToken(issue({ alg: 'HS256', typ: 'JWT' }, { ...baseClaims, iat: now + 3600 })), null);
+      assert.equal(verifySessionToken(issue({ alg: 'HS256', typ: 'JWT' }, { ...baseClaims, exp: now - 1 })), null);
+      const request = { headers: { authorization: `Bearer ${createSessionToken({ id: 'strict-user', name: 'Strict User', email: 'strict@example.test', role: 'user' })}` } } as any;
+      const { extractTokenFromRequest } = await import('./auth.js');
+      assert.equal(extractTokenFromRequest(request), null, 'bearer tokens are no longer accepted');
+      request.headers.cookie = `mf_session=${createSessionToken({ id: 'strict-user', name: 'Strict User', email: 'strict@example.test', role: 'user' })}`;
+      assert.ok(extractTokenFromRequest(request), 'HttpOnly session cookie remains accepted');
+      return { passed: true, details: 'Signed session claims require HS256, required identity/timing fields, and bounded expiry; auth extraction accepts cookies but rejects bearer headers.' };
+    },
+  },
+  {
+    name: 'SSRF SECURITY: production yt-dlp requires controlled proxy configuration',
+    run: async () => {
+      assert.throws(() => getYtDlpNetworkArgs('', 'production'), /required in production/);
+      assert.throws(() => getYtDlpNetworkArgs('file:///tmp/proxy', 'production'), /HTTP or HTTPS/);
+      assert.throws(() => getYtDlpNetworkArgs('https://user:pass@proxy.example.test', 'production'), /no embedded credentials/);
+      assert.deepEqual(getYtDlpNetworkArgs('https://proxy.example.test:443', 'production'), ['--proxy', 'https://proxy.example.test/']);
+      assert.deepEqual(getYtDlpNetworkArgs('', 'development'), []);
+      const capped = appendBoundedProcessOutput('abc', Buffer.from('defgh'), 5);
+      assert.equal(capped, 'abcde');
+      assert.equal(Buffer.byteLength(appendBoundedProcessOutput('', Buffer.alloc(300_000))), 256 * 1024);
+      return { passed: true, details: 'Production configuration fails closed without a valid standard-port HTTP(S) proxy; stdout/stderr append helper caps retained output at 256 KiB.' };
+    },
+  },
+  {
+    name: 'YTDLP CHILD ENV: strips ambient proxy configuration',
+    run: async () => {
+      const sentinelValues: Record<string, string> = {
+        HTTP_PROXY: 'http://upper-http-proxy.invalid:8101',
+        http_proxy: 'http://lower-http-proxy.invalid:8102',
+        HTTPS_PROXY: 'http://upper-https-proxy.invalid:8103',
+        https_proxy: 'http://lower-https-proxy.invalid:8104',
+        ALL_PROXY: 'http://upper-all-proxy.invalid:8105',
+        all_proxy: 'http://lower-all-proxy.invalid:8106',
+        NO_PROXY: 'upper-no-proxy.invalid',
+        no_proxy: 'lower-no-proxy.invalid',
+        MEDIAFORGE_CHILD_ENV_SENTINEL: 'preserved-unrelated-value',
+      };
+      const originalValues = new Map<string, string | undefined>();
+      for (const variable of Object.keys(sentinelValues)) originalValues.set(variable, process.env[variable]);
+
+      try {
+        for (const [variable, value] of Object.entries(sentinelValues)) process.env[variable] = value;
+        const sourceEnvironment = { ...process.env };
+        const sourceSnapshot = { ...sourceEnvironment };
+        const childEnvironment = getYtDlpChildEnvironment(sourceEnvironment);
+
+        assert.deepEqual(sourceEnvironment, sourceSnapshot, 'the helper must not mutate its source environment');
+        for (const variable of ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy']) {
+          assert.equal(childEnvironment[variable], undefined, `${variable} should not be inherited by yt-dlp`);
+        }
+        assert.equal(childEnvironment.NO_PROXY, '');
+        assert.equal(childEnvironment.no_proxy, '');
+        assert.equal(childEnvironment.MEDIAFORGE_CHILD_ENV_SENTINEL, 'preserved-unrelated-value');
+        return { passed: true, details: 'All six ambient proxy variables are omitted, both NO_PROXY forms are empty, and unrelated environment values are preserved.' };
+      } finally {
+        for (const [variable, value] of originalValues) {
+          if (value === undefined) delete process.env[variable];
+          else process.env[variable] = value;
+        }
+      }
+    },
+  },
+  {
+    name: 'AUTH SECURITY: Redis outage policy defaults closed in production',
+    run: async () => {
+      assert.equal(getRateLimitFailurePolicy('production', undefined), 'closed');
+      assert.equal(getRateLimitFailurePolicy('development', undefined), 'local');
+      assert.equal(getRateLimitFailurePolicy('production', 'local'), 'local', 'explicit override is supported and must be operator-approved');
+      await assert.rejects(() => withRateLimitTimeout(new Promise(() => {}), 5), /timed out/);
+      let redisAvailable = false;
+      const app = express();
+      app.post('/limited', createAuthenticationRateLimiter({
+        scope: 'login', check: async () => {
+          if (!redisAvailable) throw new Error('redis unavailable');
+          return { allowed: true, resetInSeconds: 60 };
+        },
+        ip: { maxRequests: 3, windowSeconds: 60 },
+      }), (_req, res) => res.sendStatus(204));
+      const server = http.createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      try {
+        const response = await fetch(`http://127.0.0.1:${(server.address() as any).port}/limited`, { method: 'POST' });
+        assert.equal(response.status, 503, 'Redis errors fail closed for authentication throttles');
+        redisAvailable = true;
+        const recovered = await fetch(`http://127.0.0.1:${(server.address() as any).port}/limited`, { method: 'POST' });
+        assert.equal(recovered.status, 204, 'authentication limiting resumes when Redis recovers');
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+      return { passed: true, details: 'Production Redis failure defaults to fail-closed; development retains bounded local fallback.' };
+    },
+  },
+  {
+    name: 'AUTH SECURITY: cross-origin cookie mutations are rejected',
+    run: async () => {
+      const app = express();
+      app.use(sameOriginMutationGuard);
+      app.post('/mutate', (_req, res) => res.sendStatus(204));
+      const server = http.createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const base = `http://127.0.0.1:${(server.address() as any).port}`;
+      const oldEnv = process.env.NODE_ENV;
+      delete process.env.NODE_ENV;
+      try {
+        let response = await fetch(`${base}/mutate`, { method: 'POST', headers: { Origin: 'https://attacker.example' } });
+        assert.equal(response.status, 403);
+        response = await fetch(`${base}/mutate`, { method: 'POST', headers: { Origin: base } });
+        assert.equal(response.status, 204, 'same-origin browser mutation remains available');
+        return { passed: true, details: 'Cross-origin mutation origins are rejected while same-origin requests continue.' };
+      } finally {
+        if (oldEnv !== undefined) process.env.NODE_ENV = oldEnv;
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
     },
   },
 
@@ -1000,7 +1138,7 @@ const tests: TestCase[] = [
         const token = createSessionToken({ id, name: admin.name, email: admin.email, role: 'admin' });
         admin.role = 'user';
         let nextCalled = false;
-        const req: any = { headers: { authorization: `Bearer ${token}` } };
+        const req: any = { headers: { cookie: `mf_session=${token}` } };
         sessionMiddleware(req, {} as any, () => { nextCalled = true; });
         if (!nextCalled || req.user?.role !== 'user') {
           return { passed: false, details: 'A demoted account retained admin privileges through its old token.' };
@@ -1115,7 +1253,7 @@ const tests: TestCase[] = [
       const base = `http://127.0.0.1:${(server.address() as any).port}`;
       const adminToken = createSessionToken({ id: admin.id, name: admin.name, email: admin.email, role: 'admin' });
       const userToken = createSessionToken({ id: user.id, name: user.name, email: user.email, role: 'user' });
-      const headers = (token: string) => ({ Authorization: `Bearer ${token}` });
+      const headers = (token: string) => ({ Cookie: `mf_session=${token}` });
       const jsonHeaders = (token: string) => ({ ...headers(token), 'Content-Type': 'application/json' });
       const get = (path: string, token?: string, extra: Record<string, string> = {}) => fetch(`${base}${path}`, { headers: { ...(token ? headers(token) : {}), ...extra } });
 
@@ -1440,7 +1578,7 @@ const tests: TestCase[] = [
       await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
       const port = (server.address() as any).port;
       const base = `http://127.0.0.1:${port}`;
-      const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+      const auth = (token: string) => ({ Cookie: `mf_session=${token}` });
       const json = async (res: Response) => res.json() as Promise<any>;
       try {
         let response = await fetch(`${base}/api/jobs/http-alice`, { headers: { 'X-User-ID': alice.id } });
@@ -1655,10 +1793,127 @@ const tests: TestCase[] = [
     },
   },
   {
+    name: 'DMCA ROUTE: valid notices persist required declarations; invalid fields are rejected',
+    run: async () => {
+      const reports = new Map<string, any>();
+      const saved: any[] = [];
+      const audited: any[] = [];
+      const app = express();
+      app.use(express.json());
+      app.post('/api/reports', createDmcaReportHandler({
+        reports,
+        save: async (report) => { saved.push(report); return true; },
+        audit: (report, ip) => audited.push({ report, ip }),
+      }));
+      const server = http.createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const base = `http://127.0.0.1:${(server.address() as any).port}`;
+      const validNotice = {
+        complainantName: 'Rights Holder',
+        email: 'rights@example.test',
+        targetUrl: 'https://media.example.test/claimed-work',
+        copyrightWorkDescription: 'Identify the copyrighted work.',
+        ownershipProofDescription: 'Describe ownership or authority to act.',
+        reason: 'This URL uses the work without authorization.',
+        goodFaithStatement: true,
+        accuracyStatement: true,
+      };
+      const post = (body: unknown) => fetch(`${base}/api/reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      try {
+        const accepted = await post(validNotice);
+        assert.equal(accepted.status, 200);
+        const acceptedBody = await accepted.json() as any;
+        assert.equal(acceptedBody.success, true);
+        assert.equal(typeof acceptedBody.data.reportId, 'string');
+        assert.equal(reports.size, 1);
+        assert.equal(saved.length, 1);
+        assert.equal(saved[0].goodFaithStatement, true);
+        assert.equal(saved[0].accuracyStatement, true);
+        assert.equal(audited.length, 1);
+
+        const missingDeclaration = await post({ ...validNotice, accuracyStatement: false });
+        assert.equal(missingDeclaration.status, 400);
+        const missingRequiredField = await post(Object.fromEntries(
+          Object.entries(validNotice).filter(([key]) => key !== 'ownershipProofDescription'),
+        ));
+        assert.equal(missingRequiredField.status, 400);
+        assert.equal(saved.length, 1, 'invalid notices must not be persisted');
+
+        const persistenceFailure = express();
+        persistenceFailure.use(express.json());
+        persistenceFailure.post('/api/reports', createDmcaReportHandler({
+          reports: new Map(),
+          save: async () => false,
+          audit: () => {},
+        }));
+        const failureServer = http.createServer(persistenceFailure);
+        await new Promise<void>((resolve) => failureServer.listen(0, '127.0.0.1', resolve));
+        try {
+          const failureResponse = await fetch(`http://127.0.0.1:${(failureServer.address() as any).port}/api/reports`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(validNotice),
+          });
+          assert.equal(failureResponse.status, 503);
+          assert.equal((await failureResponse.json() as any).success, false);
+        } finally {
+          failureServer.closeAllConnections();
+          await new Promise<void>((resolve) => failureServer.close(() => resolve()));
+        }
+        return { passed: true, details: 'Valid notice acceptance requires both statutory declarations and successful persistence; missing fields/declarations and persistence failure are rejected.' };
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  },
+  {
+    name: 'ANALYZE ROUTE: Express 4 forwards failures from rate-limit, validation, cache, and provider stages',
+    run: async () => {
+      const app = express();
+      app.use(express.json());
+      app.post('/api/analyze', asyncRoute(async (req, res) => {
+        const stage = req.body?.stage;
+        if (stage === 'rate_limit' || stage === 'validation' || stage === 'cache' || stage === 'provider') {
+          throw new Error(`internal failure at ${stage}: https://private.example.test/path?token=do-not-return`);
+        }
+        res.json({ success: true });
+      }), createAnalysisErrorHandler());
+      const server = http.createServer(app);
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const base = `http://127.0.0.1:${(server.address() as any).port}`;
+      try {
+        for (const stage of ['rate_limit', 'validation', 'cache', 'provider']) {
+          const response = await fetch(`${base}/api/analyze`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage }),
+          });
+          assert.equal(response.status, 500, `${stage} failure returns a controlled status`);
+          const body = await response.json() as any;
+          assert.deepEqual(body, {
+            success: false,
+            data: null,
+            error: {
+              code: 'ANALYSIS_FAILED',
+              message: 'Unable to retrieve media metadata from this link. Please verify the URL.',
+            },
+          });
+          assert.ok(!JSON.stringify(body).includes('private.example.test'));
+        }
+        return { passed: true, details: 'The same Express 4 async wrapper and route error handler used by /api/analyze return the stable API error body for each pre-provider and provider-stage rejection.' };
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  },
+  {
     name: 'YTDLP SECURITY: production requires a pre-provisioned YTDLP_PATH',
     run: async () => {
       const oldNodeEnv = process.env.NODE_ENV;
       const oldYtdlpPath = process.env.YTDLP_PATH;
+      const oldProxy = process.env.YTDLP_PROXY_URL;
       const service = ytDlpService as any;
       const oldDetectedCommand = service.detectedCommand;
       const tempDir = fs.mkdtempSync(path.join(tmpdir(), 'videofetch-ytdlp-'));
@@ -1667,6 +1922,7 @@ const tests: TestCase[] = [
 
       try {
         process.env.NODE_ENV = 'production';
+        process.env.YTDLP_PROXY_URL = 'https://proxy.example.test';
         service.detectedCommand = null;
         delete process.env.YTDLP_PATH;
         await assert.rejects(() => ytDlpService.detectYtDlp(), /YTDLP_PATH/);
@@ -1690,6 +1946,8 @@ const tests: TestCase[] = [
         else process.env.NODE_ENV = oldNodeEnv;
         if (oldYtdlpPath === undefined) delete process.env.YTDLP_PATH;
         else process.env.YTDLP_PATH = oldYtdlpPath;
+        if (oldProxy === undefined) delete process.env.YTDLP_PROXY_URL;
+        else process.env.YTDLP_PROXY_URL = oldProxy;
         service.detectedCommand = oldDetectedCommand;
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
@@ -1707,6 +1965,10 @@ async function runAllTests() {
 
   const selectedTests = process.argv.includes('--client-security-only')
     ? tests.filter((test) => test.name.startsWith('CLIENT SECURITY:'))
+    : process.argv.includes('--ssrf-proxy-only')
+    ? tests.filter((test) => test.name === 'SSRF SECURITY: production yt-dlp requires controlled proxy configuration')
+    : process.argv.includes('--ytdlp-child-env-only')
+    ? tests.filter((test) => test.name === 'YTDLP CHILD ENV: strips ambient proxy configuration')
     : process.argv.includes('--ytdlp-production-only')
     ? tests.filter((test) => test.name.startsWith('YTDLP SECURITY:'))
     : process.argv.includes('--auth-security-only')

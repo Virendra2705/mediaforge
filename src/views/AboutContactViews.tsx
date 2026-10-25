@@ -26,7 +26,7 @@ export const AboutView: React.FC = () => {
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-10">
       <SEOHead
         title="About VideoFetch – Media Utilities, Philosophy & Architecture"
-        description="Learn about VideoFetch: our purpose, core media tools, user experience philosophy, stateless privacy model, and responsible use principles."
+        description="Learn what VideoFetch does, review its supported media tools, and read about service limitations and responsible use."
         canonicalPath="/about"
         breadcrumbs={[{ name: 'About VideoFetch', url: '/about' }]}
       />
@@ -120,20 +120,20 @@ export const AboutView: React.FC = () => {
             Privacy &amp; Security Approach
           </h2>
           <p>
-            VideoFetch is designed around an ephemeral, stateless data model:
+            VideoFetch processes submitted links and keeps operational records needed to run the service. See the Privacy Policy for the data the application stores and the retention details that are currently known.
           </p>
           <ul className="list-disc list-inside mt-3 space-y-2 text-xs sm:text-sm pl-2">
             <li>
-              <strong>No Account Required:</strong> Standard media analyses and downloads are fully accessible without registration or personal profiling.
+              <strong>Optional accounts:</strong> Some functions can be used without signing in; account features process the details provided during registration.
             </li>
             <li>
-              <strong>Ephemeral Processing:</strong> Transcoded media files are held in temporary scratch storage and automatically deleted after 15 minutes.
+              <strong>Temporary jobs:</strong> Download jobs are assigned a 15-minute expiry, and the application attempts to clean up associated media after expiry.
             </li>
             <li>
-              <strong>Cryptographic Security:</strong> Download endpoints are authenticated with signed HMAC tokens, preventing unauthorized directory harvesting.
+              <strong>Request records:</strong> Operational and audit records can contain request IP addresses and media source details.
             </li>
             <li>
-              <strong>SSRF Defense:</strong> Submitted URLs are strictly filtered against private IP ranges, loopback addresses, and cloud provider metadata interfaces.
+              <strong>Security limits:</strong> URL validation and file checks reduce specific risks; they do not guarantee that all outbound-network risks have been eliminated.
             </li>
           </ul>
         </div>
@@ -162,30 +162,33 @@ export const ContactView: React.FC = () => {
   const [email, setEmail] = useState('');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSent, setIsSent] = useState(false);
+  const [isDraftReady, setIsDraftReady] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !message.trim()) {
       addToast('error', 'Missing Information', 'Please fill in your name, email, and message.');
       return;
     }
 
-    setIsSubmitting(true);
-    // Simulate clean dispatch to contact endpoint / email handler
-    setTimeout(() => {
-      setIsSubmitting(false);
-      setIsSent(true);
-      addToast('success', 'Message Received', 'Your inquiry has been logged. We will review it promptly.');
-    }, 400);
+    const purposeLabel = {
+      general: 'General question',
+      technical: 'Technical issue',
+      dmca: 'Copyright or DMCA',
+      security: 'Security report',
+    }[purpose];
+    const emailSubject = `[${purposeLabel}] ${subject.trim() || 'VideoFetch inquiry'}`;
+    const emailBody = `Name: ${name.trim()}\nReply email: ${email.trim()}\n\n${message.trim()}`;
+    window.location.href = `mailto:virendrthakor8@gmail.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    setIsDraftReady(true);
+    addToast('info', 'Review your email draft', 'Send the draft from your email app; the website does not send it automatically.');
   };
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-10">
       <SEOHead
         title="Contact VideoFetch – Support, DMCA & Inquiries"
-        description="Contact the VideoFetch team for general questions, technical bug reports, copyright/DMCA matters, and security inquiries."
+        description="Prepare an email to report a VideoFetch issue, ask a question, or send a copyright or security inquiry."
         canonicalPath="/contact"
         breadcrumbs={[{ name: 'Contact & Support', url: '/contact' }]}
       />
@@ -213,13 +216,13 @@ export const ContactView: React.FC = () => {
               For direct communication, you can reach our administration at:
             </p>
             <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60">
-              <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 select-all block break-all">
+                <a href="mailto:virendrthakor8@gmail.com" className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 select-all block break-all underline">
                 virendrthakor8@gmail.com
-              </span>
+                </a>
             </div>
             <div className="text-[11px] text-slate-500 space-y-1.5 pt-2 border-t border-slate-200 dark:border-slate-800">
-              <p>• Replies sent within 24–48 business hours.</p>
-              <p>• Please specify your topic clearly in the subject line.</p>
+              <p>• Response times vary.</p>
+              <p>• Please specify your topic in the subject line.</p>
             </div>
           </div>
 
@@ -229,23 +232,23 @@ export const ContactView: React.FC = () => {
               <span>Inquiry Categories</span>
             </div>
             <p>
-              Select the appropriate purpose on the form to route your message to the correct desk.
+              Choose a purpose to label the subject of the email draft.
             </p>
           </div>
         </div>
 
         {/* Contact Form */}
         <div className="md:col-span-2 p-6 sm:p-8 rounded-2xl bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 shadow-xl">
-          {isSent ? (
+          {isDraftReady ? (
             <div className="text-center py-10 space-y-4">
               <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Message Transmitted</h3>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Email Draft Requested</h3>
               <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-                Thank you for contacting VideoFetch. Your inquiry has been routed to our team, and we will follow up at <span className="font-semibold text-slate-900 dark:text-white">{email}</span>.
+                Your device may open an email draft addressed to VideoFetch. Review it and press Send in your email app; the website has not sent or stored this message. If no email app opened, email <a href="mailto:virendrthakor8@gmail.com" className="font-semibold text-slate-900 dark:text-white underline">VideoFetch directly</a>.
               </p>
               <button
                 onClick={() => {
-                  setIsSent(false);
+                  setIsDraftReady(false);
                   setName('');
                   setEmail('');
                   setSubject('');
@@ -253,7 +256,7 @@ export const ContactView: React.FC = () => {
                 }}
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-sm cursor-pointer"
               >
-                Send Another Inquiry
+                Prepare Another Inquiry
               </button>
             </div>
           ) : (
@@ -343,13 +346,16 @@ export const ContactView: React.FC = () => {
                 />
               </div>
 
+              <p className="text-xs text-slate-500" role="note">
+                This form opens a draft in your email app. Nothing is sent or stored by the website unless you send the email.
+              </p>
+
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className="w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                className="w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 <Send className="w-4 h-4" />
-                <span>{isSubmitting ? 'Transmitting...' : 'Send Message'}</span>
+                <span>Open Email Draft</span>
               </button>
             </form>
           )}
