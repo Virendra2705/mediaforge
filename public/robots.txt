@@ -51,4 +51,4 @@ Disallow: /api/download/file/
 Disallow: /temp/
 Disallow: /temp_media/
 
-Sitemap: https://videofetch.app/sitemap.xml
+Sitemap: https://videofetch-docker.onrender.com/sitemap.xml

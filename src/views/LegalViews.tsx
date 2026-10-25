@@ -16,6 +16,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { SEOHead } from '../components/SEOHead';
 import { Breadcrumbs } from '../components/Breadcrumbs';
+import { postPublicSubmission } from '../utils/publicSubmissionClient';
 
 // ============================================================================
 // 1. DMCA & COPYRIGHT TAKEDOWN POLICY (/dmca)
@@ -25,46 +26,45 @@ export const DmcaView: React.FC = () => {
   const [claimantName, setClaimantName] = useState('');
   const [claimantEmail, setClaimantEmail] = useState('');
   const [targetUrl, setTargetUrl] = useState('');
-  const [originalWorkUrl, setOriginalWorkUrl] = useState('');
+  const [ownershipProofDescription, setOwnershipProofDescription] = useState('');
   const [statement, setStatement] = useState('');
+  const [reason, setReason] = useState('');
   const [isAgreed, setIsAgreed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!claimantName.trim() || !claimantEmail.trim() || !targetUrl.trim() || !isAgreed) {
-      addToast('error', 'Missing Fields', 'Please complete all required fields and accept the statutory declaration.');
+    if (!claimantName.trim() || !claimantEmail.trim() || !targetUrl.trim() || statement.trim().length < 10 || ownershipProofDescription.trim().length < 10 || reason.trim().length < 5 || !isAgreed) {
+      addToast('error', 'Missing Fields', 'Complete each required notice field and accept both legal declarations.');
       return;
     }
 
     setIsSubmitting(true);
-    try {
-      const res = await fetch('/api/dmca', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          claimantName,
-          claimantEmail,
-          targetUrl,
-          originalWorkUrl,
-          statement,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSubmittedId(data.complaintId || 'DMCA-' + Math.random().toString(36).substring(2, 8).toUpperCase());
-        addToast('success', 'Complaint Logged', 'Your notice has been recorded for review.');
+    const result = await postPublicSubmission('/api/reports', {
+      complainantName: claimantName.trim(),
+      email: claimantEmail.trim(),
+      targetUrl: targetUrl.trim(),
+      copyrightWorkDescription: statement.trim(),
+      ownershipProofDescription: ownershipProofDescription.trim(),
+      reason: reason.trim(),
+      goodFaithStatement: isAgreed,
+      accuracyStatement: isAgreed,
+    });
+    const responseData = result.success && result.body.data && typeof result.body.data === 'object'
+      ? result.body.data as Record<string, unknown>
+      : null;
+    if (responseData && typeof responseData.reportId === 'string' && responseData.reportId.trim().length > 0) {
+      setSubmittedId(responseData.reportId);
+      addToast('success', 'Notice Accepted', 'The notice was stored for review. No removal has yet occurred.');
+    } else {
+      if ('message' in result) {
+        addToast('error', 'Submission Failed', result.message);
       } else {
-        addToast('error', 'Submission Failed', data.error || 'Server error occurred.');
+        addToast('error', 'Submission Failed', 'The server response could not be confirmed.');
       }
-    } catch {
-      // Fallback submission acknowledgement
-      setSubmittedId('DMCA-' + Math.random().toString(36).substring(2, 8).toUpperCase());
-      addToast('success', 'Complaint Logged', 'Your notice has been recorded.');
-    } finally {
-      setIsSubmitting(false);
     }
+    setIsSubmitting(false);
   };
 
   return (
@@ -154,17 +154,17 @@ export const DmcaView: React.FC = () => {
             Submit an Online Takedown Notice
           </h3>
           <p className="text-xs text-slate-500 mb-6">
-            Complete the fields below to file an expedited notice. All fields marked with * are required.
+            This form stores a copyright report for review. It does not collect every item listed above; use the designated contact method above to submit a complete formal notice. All fields marked with * are required.
           </p>
 
           {submittedId ? (
             <div className="p-6 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-center space-y-3">
               <CheckCircle2 className="w-10 h-10 text-emerald-600 dark:text-emerald-400 mx-auto" />
               <h4 className="text-base font-bold text-slate-900 dark:text-white">
-                Takedown Notice Successfully Logged
+                Notice Accepted for Review
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 max-w-md mx-auto">
-                Reference ID: <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{submittedId}</span>. Our compliance desk has received your notice for investigation.
+                Reference ID: <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{submittedId}</span>. The service stored your notice for review. This acknowledgment does not mean material has been removed.
               </p>
             </div>
           ) : (
@@ -215,26 +215,45 @@ export const DmcaView: React.FC = () => {
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  URL / Proof of Original Work
+                  Description of Ownership or Authority to Act *
                 </label>
                 <input
-                  type="url"
-                  value={originalWorkUrl}
-                  onChange={e => setOriginalWorkUrl(e.target.value)}
-                  placeholder="Link to original work, copyright registry, or official publisher"
+                  type="text"
+                  required
+                  minLength={10}
+                  value={ownershipProofDescription}
+                  onChange={e => setOwnershipProofDescription(e.target.value)}
+                  placeholder="Describe your ownership or authority to act on behalf of the owner"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Statement of Infringement &amp; Description
+                  Description of the Copyrighted Work *
                 </label>
                 <textarea
                   rows={3}
+                  required
+                  minLength={10}
                   value={statement}
                   onChange={e => setStatement(e.target.value)}
-                  placeholder="Describe your ownership of the work and the unauthorized nature of the target stream..."
+                  placeholder="Identify and describe the copyrighted work..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Reason the Material Is Unauthorized *
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  minLength={5}
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="Explain why the identified material is unauthorized..."
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>

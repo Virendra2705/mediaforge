@@ -17,6 +17,7 @@ import {
   Sliders,
   Filter,
   Zap,
+  Mail,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -25,7 +26,11 @@ export const AdminView: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
   const [complaints, setComplaints] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'dmca' | 'providers' | 'database' | 'redis' | 'settings'>('overview');
+  const [contactMessages, setContactMessages] = useState<any[]>([]);
+  const [contactHasMore, setContactHasMore] = useState(false);
+  const [contactLoading, setContactLoading] = useState(false);
+  const [contactLoadError, setContactLoadError] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'dmca' | 'contacts' | 'providers' | 'database' | 'redis' | 'settings'>('overview');
   const [isLoading, setIsLoading] = useState(true);
   const [dbStatus, setDbStatus] = useState<any>(null);
   const [redisStatus, setRedisStatus] = useState<any>(null);
@@ -33,6 +38,28 @@ export const AdminView: React.FC = () => {
   const [testingRedis, setTestingRedis] = useState(false);
 
   const authHeaders: Record<string, string> = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+
+  const loadContactMessages = async (offset: number, append = false) => {
+    setContactLoading(true);
+    setContactLoadError(false);
+    try {
+      const response = await fetch(`/api/admin/contact-messages?limit=20&offset=${offset}`, { headers: authHeaders });
+      if (!response.ok) throw new Error('Contact messages unavailable');
+      const result = await response.json();
+      if (result.success !== true || !Array.isArray(result.data?.items) || typeof result.data?.pagination?.hasMore !== 'boolean') {
+        throw new Error('Invalid contact message response');
+      }
+      setContactMessages(current => append ? [...current, ...result.data.items] : result.data.items);
+      setContactHasMore(result.data.pagination.hasMore);
+    } catch {
+      setContactMessages([]);
+      setContactHasMore(false);
+      setContactLoadError(true);
+      addToast('error', 'Contact Messages Unavailable', 'The stored messages could not be loaded. Try again later.');
+    } finally {
+      setContactLoading(false);
+    }
+  };
 
   // Provider states
   const [providerStatuses, setProviderStatuses] = useState({
@@ -181,7 +208,7 @@ export const AdminView: React.FC = () => {
         </div>
 
         <button
-          onClick={fetchData}
+          onClick={() => activeTab === 'contacts' ? void loadContactMessages(0) : fetchData()}
           disabled={isLoading}
           className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-2 border border-slate-700 transition-colors"
         >
@@ -226,6 +253,21 @@ export const AdminView: React.FC = () => {
         >
           <AlertTriangle className="w-4 h-4" />
           DMCA Notices ({complaints.length})
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('contacts');
+            void loadContactMessages(0);
+          }}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors whitespace-nowrap flex items-center gap-2 ${
+            activeTab === 'contacts'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+          }`}
+        >
+          <Mail className="w-4 h-4" />
+          Contact Messages ({contactMessages.length} loaded)
         </button>
 
         <button
@@ -500,6 +542,56 @@ export const AdminView: React.FC = () => {
         </div>
       )}
 
+      {activeTab === 'contacts' && (
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+          <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">Contact Messages</h3>
+              <p className="text-xs text-slate-500 mt-1">Stored submissions for operator review. This view does not send replies or mark messages as read.</p>
+            </div>
+            <button
+              onClick={() => void loadContactMessages(0)}
+              disabled={contactLoading}
+              className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {contactLoadError ? (
+            <div className="p-8 text-center text-sm text-rose-600 dark:text-rose-400">Messages could not be loaded. Use Refresh to retry.</div>
+          ) : contactMessages.length === 0 && !contactLoading ? (
+            <div className="p-8 text-center text-sm text-slate-500">No messages are available on this page.</div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {contactMessages.map((item) => (
+                <article key={item.id} className="p-5 space-y-2">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h4 className="font-semibold text-sm text-slate-900 dark:text-white">{item.subject || '(No subject)'}</h4>
+                    <time className="text-xs text-slate-500" dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">From {item.name} · <a className="underline" href={`mailto:${encodeURIComponent(item.email)}`}>{item.email}</a></p>
+                  <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{item.message}</p>
+                  <p className="text-[11px] text-slate-500">Status: {item.status}</p>
+                </article>
+              ))}
+            </div>
+          )}
+
+          {contactHasMore && !contactLoadError && (
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 text-center">
+              <button
+                onClick={() => void loadContactMessages(contactMessages.length, true)}
+                disabled={contactLoading}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white disabled:opacity-50"
+              >
+                {contactLoading ? 'Loading…' : 'Load older messages'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* TAB 4: PROVIDER ADAPTERS */}
       {activeTab === 'providers' && (
         <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-6">
@@ -615,7 +707,7 @@ export const AdminView: React.FC = () => {
                   { table: 'media_jobs', desc: 'Job queue items, progress, tokens, and metadata', count: jobs.length },
                   { table: 'dmca_reports', desc: 'Legal copyright compliance notices and adjudication state', count: complaints.length },
                   { table: 'blog_posts', desc: 'Educational articles, codecs comparison, fair use guides', count: 3 },
-                  { table: 'contact_messages', desc: 'Inbound user inquiries and creator feedback', count: 0 },
+                  { table: 'contact_messages', desc: 'Inbound user inquiries and creator feedback', count: contactMessages.length },
                   { table: 'audit_logs', desc: 'Tamper-evident system activity and security audit trail', count: stats?.auditLogs?.length || 2 },
                   { table: 'system_settings', desc: 'Provider status, rate limits, and security configuration', count: 1 },
                 ].map((item, idx) => (

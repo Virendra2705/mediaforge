@@ -21,6 +21,7 @@ import {
   validateAndNormalizeUrlAsync,
   verifyDownloadToken,
   getStorageSigningSecret,
+  checkRateLimit,
 } from './server/security.js';
 import {
   sessionMiddleware,
@@ -54,6 +55,8 @@ import {
   isHtmlOrChallengeContent,
 } from './server/upstreamValidator.js';
 import { registerMediaEgressRoutes } from './server/mediaEgressRoutes.js';
+import { registerPublicSubmissionRoutes } from './server/publicSubmissionRoutes.js';
+import { registerAdminContactRoutes } from './server/adminContactRoutes.js';
 import { createBlogPostHandler, registerDatabaseAvailabilityGate, registerDiagnosticAdminGate, registerPublicBlogReadRoutes, registerPublicOperationalRoutes } from './server/operationalSecurity.js';
 import { createAuthenticationRateLimiter, getTrustedClientAddress } from './server/authRateLimit.js';
 import { createAnonymousJobCapability, isContainedJobFilePath } from './server/jobAuthorization.js';
@@ -1521,79 +1524,20 @@ async function startServer() {
   }));
 
   // ==========================================
-  // 9. DMCA / Abuse Report Endpoint
+  // 9. Public DMCA and contact submissions
   // ==========================================
-  const dmcaSchema = z.object({
-    complainantName: z.string().min(2),
-    email: z.string().email(),
-    organization: z.string().optional(),
-    targetUrl: z.string().url(),
-    copyrightWorkDescription: z.string().min(10),
-    ownershipProofDescription: z.string().min(10),
-    reason: z.string().min(5),
-    goodFaithStatement: z.literal(true),
-    accuracyStatement: z.literal(true),
-  });
-
-  app.post('/api/reports', (req, res) => {
-    const parseResult = dmcaSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'INVALID_DMCA_FORM', message: 'All required legal declarations must be checked.' },
-      });
-    }
-
-    const data = parseResult.data;
-    const reportId = `dmca_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const now = new Date().toISOString();
-
-    const report = {
-      id: reportId,
-      ...data,
-      status: 'PENDING' as const,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    db.dmcaReports.set(reportId, report);
-    postgresManager.saveDmcaReport(report).catch(() => {});
-    db.addAuditLog('DMCA_FILED', req.ip || '127.0.0.1', `DMCA notice filed for ${data.targetUrl} by ${data.complainantName}`);
-
-    return res.json({
-      success: true,
-      data: {
-        reportId,
-        message: 'Your notice has been registered and routed to our legal compliance officer.',
-      },
-      error: null,
-    });
-  });
-
-  // ==========================================
-  // 10. Contact Message Endpoint
-  // ==========================================
-  app.post('/api/contact', (req, res) => {
-    const { name, email, subject, message } = req.body;
-    if (!name || !email || !message) {
-      return res.status(400).json({ success: false, error: 'Name, email, and message are required.' });
-    }
-
-    const id = `msg_${Date.now()}`;
-    const msg = {
-      id,
-      name,
-      email,
-      subject: subject || 'General Inquiry',
-      message,
-      status: 'UNREAD' as const,
-      createdAt: new Date().toISOString(),
-    };
-    db.contactMessages.set(id, msg);
-    postgresManager.saveContactMessage(msg).catch(() => {});
-
-    db.addAuditLog('CONTACT_SUBMITTED', req.ip || '127.0.0.1', `Message received from ${email}`);
-    res.json({ success: true, message: 'Message sent successfully.' });
+  registerPublicSubmissionRoutes(app, {
+    isPersistentStoreAvailable: () => db.persistenceMode === 'postgres' && postgresManager.isConnected,
+    saveDmcaReport: async (report) => {
+      await postgresManager.saveDmcaReport(report);
+      db.dmcaReports.set(report.id, report);
+    },
+    saveContactMessage: async (message) => {
+      await postgresManager.saveContactMessage(message);
+      db.contactMessages.set(message.id, message);
+    },
+    audit: (event, ip) => db.addAuditLog(event, ip, 'Public submission accepted and stored.'),
+    checkRateLimit: (req) => checkRateLimit(req, 10),
   });
 
   // ==========================================
@@ -1660,6 +1604,10 @@ async function startServer() {
   app.get('/api/admin/reports', requireAdmin, (req, res) => {
     const reports = Array.from(db.dmcaReports.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     res.json({ success: true, data: reports });
+  });
+
+  registerAdminContactRoutes(app, {
+    getContactMessages: (limit, offset) => postgresManager.getContactMessages(limit, offset),
   });
 
   app.patch('/api/admin/reports/:id', requireAdmin, (req, res) => {
@@ -2157,7 +2105,7 @@ async function startServer() {
       return res.sendFile(adsTxtPath);
     }
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.status(200).send('# VideoFetch — Google AdSense ads.txt\ngoogle.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0\n');
+    res.status(200).send('# No verified publisher record is included in this ads.txt file.\n');
   });
 
   // ==========================================
@@ -2179,7 +2127,7 @@ async function startServer() {
   // Dynamic sitemap.xml generator (Always in sync with database & tools)
   // ==========================================
   app.get('/sitemap.xml', (req, res) => {
-    const origin = 'https://videofetch.app';
+    const origin = 'https://videofetch-docker.onrender.com';
     const staticRoutes = [
       { path: '', priority: '1.0', changefreq: 'daily' },
       { path: '/video-downloader', priority: '0.9', changefreq: 'weekly' },
@@ -2189,7 +2137,7 @@ async function startServer() {
       { path: '/thumbnail-downloader', priority: '0.8', changefreq: 'weekly' },
       { path: '/subtitle-downloader', priority: '0.7', changefreq: 'weekly' },
       { path: '/4k-video-downloader', priority: '0.8', changefreq: 'weekly' },
-      { path: '/youtube-downloader', priority: '0.8', changefreq: 'weekly' },
+      { path: '/youtube-video-downloader', priority: '0.8', changefreq: 'weekly' },
       { path: '/youtube-shorts-downloader', priority: '0.8', changefreq: 'weekly' },
       { path: '/tiktok-video-downloader', priority: '0.8', changefreq: 'weekly' },
       { path: '/instagram-video-downloader', priority: '0.8', changefreq: 'weekly' },

@@ -20,6 +20,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { SEOHead } from '../components/SEOHead';
 import { Breadcrumbs } from '../components/Breadcrumbs';
+import { postPublicSubmission } from '../utils/publicSubmissionClient';
 
 export const AboutView: React.FC = () => {
   return (
@@ -173,12 +174,24 @@ export const ContactView: React.FC = () => {
     }
 
     setIsSubmitting(true);
-    // Simulate clean dispatch to contact endpoint / email handler
-    setTimeout(() => {
-      setIsSubmitting(false);
+    const result = await postPublicSubmission('/api/contact', {
+      name: name.trim(),
+      email: email.trim(),
+      purpose,
+      subject: subject.trim(),
+      message: message.trim(),
+    });
+    if (result.success && result.body.success === true && typeof result.body.message === 'string') {
       setIsSent(true);
-      addToast('success', 'Message Received', 'Your inquiry has been logged. We will review it promptly.');
-    }, 400);
+      addToast('success', 'Message Accepted', 'Your message was stored for review. No email delivery or response is guaranteed.');
+    } else {
+      if ('message' in result) {
+        addToast('error', 'Submission Failed', result.message);
+      } else {
+        addToast('error', 'Submission Failed', 'The server response could not be confirmed.');
+      }
+    }
+    setIsSubmitting(false);
   };
 
   return (
@@ -218,7 +231,7 @@ export const ContactView: React.FC = () => {
               </span>
             </div>
             <div className="text-[11px] text-slate-500 space-y-1.5 pt-2 border-t border-slate-200 dark:border-slate-800">
-              <p>• Replies sent within 24–48 business hours.</p>
+              <p>• Online submissions are stored for review; no response time is guaranteed.</p>
               <p>• Please specify your topic clearly in the subject line.</p>
             </div>
           </div>
@@ -229,7 +242,7 @@ export const ContactView: React.FC = () => {
               <span>Inquiry Categories</span>
             </div>
             <p>
-              Select the appropriate purpose on the form to route your message to the correct desk.
+              The selected purpose is recorded with your message to help categorize it. It does not route to a separate desk.
             </p>
           </div>
         </div>
@@ -239,9 +252,9 @@ export const ContactView: React.FC = () => {
           {isSent ? (
             <div className="text-center py-10 space-y-4">
               <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Message Transmitted</h3>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Message Accepted</h3>
               <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-                Thank you for contacting VideoFetch. Your inquiry has been routed to our team, and we will follow up at <span className="font-semibold text-slate-900 dark:text-white">{email}</span>.
+                The service stored your inquiry for review. This does not mean an email was sent, and no response time is guaranteed.
               </p>
               <button
                 onClick={() => {
@@ -349,7 +362,7 @@ export const ContactView: React.FC = () => {
                 className="w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
               >
                 <Send className="w-4 h-4" />
-                <span>{isSubmitting ? 'Transmitting...' : 'Send Message'}</span>
+                <span>{isSubmitting ? 'Submitting...' : 'Send Message'}</span>
               </button>
             </form>
           )}
